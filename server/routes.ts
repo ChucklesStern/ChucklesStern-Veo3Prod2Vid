@@ -137,6 +137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (!webhookResponse.ok) {
+        const responseText = await webhookResponse.text();
         await storage.updateVideoGeneration(taskId, { 
           status: "failed", 
           errorMessage: `Webhook failed: ${webhookResponse.statusText}` 
