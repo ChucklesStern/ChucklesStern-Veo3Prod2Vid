@@ -21,7 +21,8 @@ export const GenerationCallbackSchema = z.object({
 export const N8nWebhookPayloadSchema = z.object({
   taskId: z.string(),
   promptText: z.string(),
-  imagePath: z.string().nullable()
+  imagePath: z.string().nullable(),
+  Imageurl: z.string().nullable()
 });
 
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;

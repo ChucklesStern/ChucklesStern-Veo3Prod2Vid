@@ -143,10 +143,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("N8N_WEBHOOK_URL not configured");
       }
 
+      // Construct full public URL for the image
+      let imageUrl = null;
+      if (validatedBody.imagePath) {
+        const protocol = req.headers['x-forwarded-proto'] || 'http';
+        const host = req.headers.host;
+        imageUrl = `${protocol}://${host}${validatedBody.imagePath}`;
+      }
+
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId,
         promptText: validatedBody.promptText,
-        imagePath: validatedBody.imagePath || null
+        imagePath: validatedBody.imagePath || null,
+        Imageurl: imageUrl
       });
 
       const webhookResponse = await fetch(n8nWebhookUrl, {
