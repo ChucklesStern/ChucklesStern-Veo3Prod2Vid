@@ -1,0 +1,26 @@
+import { sql } from "drizzle-orm";
+import { pgTable, text, uuid, timestamp } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+export const videoGenerations = pgTable("video_generations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: text("task_id").unique().notNull(),
+  promptText: text("prompt_text").notNull(),
+  imageOriginalPath: text("image_original_path"),
+  imageGenerationPath: text("image_generation_path"),
+  videoPath: text("video_path"),
+  status: text("status").notNull().default("pending").$type<"pending" | "processing" | "completed" | "failed">(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow()
+});
+
+export const insertVideoGenerationSchema = createInsertSchema(videoGenerations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true
+});
+
+export type InsertVideoGeneration = z.infer<typeof insertVideoGenerationSchema>;
+export type VideoGeneration = typeof videoGenerations.$inferSelect;
