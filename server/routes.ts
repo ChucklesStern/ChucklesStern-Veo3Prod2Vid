@@ -49,6 +49,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ ok: true });
   });
 
+  // Public object serving endpoint
+  app.get("/public-objects/:filePath(*)", async (req, res) => {
+    const filePath = req.params.filePath;
+    try {
+      const file = await objectStorageService.searchPublicObject(filePath);
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      await objectStorageService.downloadObject(file, res);
+    } catch (error) {
+      console.error("Error serving public object:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Upload endpoint
   app.post("/api/upload", upload.single('file'), async (req, res) => {
     try {
@@ -56,8 +71,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No file provided" });
       }
 
-      // Get upload URL
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      // Create filename with extension
+      const fileExtension = req.file.originalname.split('.').pop() || 'jpg';
+      const filename = `${randomUUID()}.${fileExtension}`;
+
+      // Get public upload URL
+      const uploadURL = await objectStorageService.getPublicUploadURL(filename);
       
       // Upload file using the presigned URL
       const uploadResponse = await fetch(uploadURL, {
@@ -72,12 +91,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error(`Upload failed: ${uploadResponse.statusText}`);
       }
 
-      // Extract object path from upload URL
-      const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-      const mediaUrl = `/api/media/${encodeURIComponent(objectPath.replace('/objects/', ''))}`;
+      // Create public URL path
+      const publicPath = `/public-objects/uploads/${filename}`;
+      const mediaUrl = publicPath;
 
       const response = UploadResponseSchema.parse({
-        objectPath,
+        objectPath: publicPath,
         mediaUrl
       });
 
