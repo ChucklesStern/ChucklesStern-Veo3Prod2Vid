@@ -1,0 +1,197 @@
+You are my Replit code helper. Please create a full-stack monorepo app as described below. Use simple, everyday language in comments, commit messages, and any on-screen instructions.
+
+## GOAL
+Build a full-stack web app with a React 18 + TypeScript frontend and an Express.js + TypeScript backend. The app is a “video generation submission portal” that:
+- accepts text + optional image,
+- uploads the image to **Replit App Storage (Object Storage)**,
+- sends the submission (text + stored image path) to an **n8n webhook**,
+- tracks processing status in **PostgreSQL (Neon serverless)**,
+- shows a real-time, two-panel dashboard (left: form, right: results) that polls every 5s and only displays **completed** videos,
+- lets users click images/videos to open full-size in new tabs.
+
+Use TypeScript everywhere (strict), share Zod/TS types, and follow the **exact UI spec** below.
+
+## NO AUTH (IMPORTANT)
+There is **no login and no user system**. Do not add /auth routes, sessions, or cookies.
+
+## STACK & TOOLS (use exactly these)
+- Frontend: React 18 + TypeScript, **Vite**, **Wouter** (routing), **@tanstack/react-query**, **Tailwind CSS**, **shadcn/ui** (Radix primitives), **React Hook Form** + **Zod**, **Uppy** for uploads, **lucide-react** for icons.
+- Backend: Node.js (ESM) + Express, **Drizzle ORM**, **tsx** (dev), **esbuild** (prod).
+- Database: PostgreSQL (Neon) via **@neondatabase/serverless** + Drizzle ORM + **drizzle-kit** migrations.
+- **Object Storage**: **Replit App Storage** via **@replit/object-storage**.
+- Dev/DX: **@vitejs/plugin-react**, **@replit/vite-plugin-*** (cartographer + error overlay), TypeScript strict, path aliases.
+- Validation: **zod** + **drizzle-zod**.
+
+## MONOREPO LAYOUT
+Create a TypeScript monorepo with pnpm workspaces:
+
+/
+  package.json (workspaces)
+  pnpm-lock.yaml
+  tsconfig.base.json
+  .env.example
+  drizzle.config.ts
+  /packages/shared   -> shared zod schemas + TypeScript types
+  /apps/server       -> Express API (TypeScript, ESM)
+  /apps/web          -> React app (Vite + TS)
+
+Path aliases:
+- @shared/* -> packages/shared/src/*
+- @server/* -> apps/server/src/*
+- @web/*    -> apps/web/src/*
+
+## ENV VARS (.env.example)
+NEON_DATABASE_URL="postgres://... (Neon serverless) ..."
+APP_STORAGE_BUCKET_ID="bucket-id-from-Replit-App-Storage"
+N8N_WEBHOOK_URL="https://your-n8n-instance/webhook/video"
+
+## DATABASE (Drizzle)
+Only one table for now (no users):
+
+Table: video_generations
+- id uuid pk default gen_random_uuid()
+- task_id text unique not null
+- prompt_text text not null
+- image_original_path text null        // App Storage object path
+- image_generation_path text null      // first-frame/derived path from n8n
+- video_path text null                 // final video object path, set when done
+- status text not null default 'pending' // 'pending' | 'processing' | 'completed' | 'failed'
+- error_message text null
+- created_at timestamp default now()
+- updated_at timestamp default now()
+Index on (created_at desc).
+
+## BACKEND (apps/server)
+- ESM TS with tsx for dev and esbuild for build.
+- Express middlewares: express.json, cors (credentials false; allow the web origin).
+- Drizzle connection using @neondatabase/serverless.
+- **App Storage client**: use `@replit/object-storage` with `APP_STORAGE_BUCKET_ID`.
+- **Upload API**:
+  - POST /api/upload  (multipart; field `file`)
+    - validate MIME: png/jpg/webp/gif; size ≤ 10MB
+    - store under `uploads/<uuid>.<ext>`
+    - return `{ objectPath, mediaUrl }` where:
+      - `objectPath` is the storage key
+      - `mediaUrl` is `/media/<encodedKey>` for direct GET
+- **Media serving**:
+  - GET /media/:key  -> stream from App Storage; set proper Content-Type and `Cache-Control: public, max-age=31536000, immutable`
+- **Video workflow**:
+  - POST /api/generations
+    - body: { promptText: string, imagePath?: string } // from /api/upload
+    - create row with unique `task_id` and status 'pending'
+    - POST to N8N_WEBHOOK_URL with { taskId, promptText, imagePath }
+    - set status 'processing'; return { id, taskId }
+  - POST /api/generations/callback
+    - body: { taskId, imageGenerationPath?, videoPath?, status: 'completed' | 'failed', errorMessage? }
+    - update row accordingly; set updated_at
+  - GET /api/generations?onlyCompleted=true
+    - latest N (e.g., 50) with status 'completed' and non-null `video_path`
+  - GET /api/generations/:id -> single row
+- GET /api/health -> { ok: true }
+
+## N8N CONTRACT
+We send:
+{
+  "taskId": string,
+  "promptText": string,
+  "imagePath": string | null
+}
+n8n calls back:
+POST /api/generations/callback
+{
+  "taskId": string,
+  "imageGenerationPath"?: string,
+  "videoPath"?: string,
+  "status": "completed" | "failed",
+  "errorMessage"?: string
+}
+
+## FRONTEND (apps/web) — MUST MATCH THIS UI
+Single route “/” with a responsive **two-column layout**:
+
+Header:
+- Title: **“Fabbitt Product to Video Machine ( inspired by Kev )”**
+- Subtext: “Transform your text and images into stunning videos”
+
+Left pane (Card titled **Create Video**):
+- Label above textarea: **Product Description**
+- **Tips card** (shadcn Alert/Callout) labeled “💡 Prompting Tips” with a numbered list:
+  1. Product: what are you advertising? (e.g., “Celsius energy drink”)
+  2. Message: what should the video communicate? (e.g., “energizing fruit explosion”)
+  3. Style: format & tone (e.g., “Gen Z voice, high energy”)
+  4. Dimensions: Vertical (9:16) for mobile or horizontal (16:9) for desktop
+- Placeholder under the tips card (muted example textbox):
+  “Example: Create a Celsius energy drink advertisement with a fruit explosion theme, featuring a Gen Z voice with high energy saying 'Celsius - breathe energy into your life!' in vertical dimensions (9:16)”
+- **Textarea** for `promptText` (required).
+- **Upload zone** styled with a **dashed border** (Uppy) showing:
+  - “Click to upload or drag and drop”
+  - “PNG, JPG, GIF up to 10MB”
+- **Generate Video** button (primary). Disabled while uploading/submitting.
+
+Right pane (Card titled **Video Results** with a green dot indicator):
+- Empty state when no items:
+  - centered small video icon
+  - title: “No videos yet”
+  - subtitle: “Submit your text and image to see generated videos”
+- When items exist:
+  - show a vertical list (or responsive grid) of cards.
+  - each card shows:
+    - promptText (truncated to 2–3 lines),
+    - thumbnail(s): original image (if any) and first frame (if available) as clickable links to `/media/<key>` opening in a new tab,
+    - a **Play** section or button that opens the final video `/media/<video_key>` in a new tab (or inline `<video controls>`).
+- Poll results every **5s** with react-query.
+
+General UI/UX:
+- Use shadcn/ui (Button, Card, Input, Textarea, Alert/Callout).
+- Tailwind with CSS variables for theming; light theme default.
+- Include loading states (spinners/skeletons) for submit and polling refresh.
+- Show friendly toast errors for validation and upload failures.
+
+## SHARED PACKAGE (packages/shared)
+- Zod schemas + types for:
+  - UploadResponse
+  - GenerationCreateRequest / GenerationRow
+  - Callback DTO
+- Export for frontend and backend.
+
+## SECURITY & VALIDATION
+- Client: validate prompt text; image MIME and size ≤ 10MB.
+- Server: re-validate with Zod; reject non-image uploads.
+- CORS: allow the web origin; credentials not required.
+
+## REAL-TIME (POLLING)
+- Simple 5s polling with react-query. No websockets.
+
+## REPLIT INTEGRATION
+- Use Replit **App Storage** tool; set `APP_STORAGE_BUCKET_ID`.
+- Add @replit/vite-plugin-* for cartographer and error overlay.
+- Scripts to run both apps with hot reload:
+  - root: "pnpm dev" -> start server (tsx watch) + web (vite dev)
+- Production:
+  - server: esbuild -> `node dist/index.js`
+  - web: `vite build` + `vite preview`
+- README: include clear steps to run on Replit.
+
+## SCRIPTS (root package.json suggestions)
+- "dev": run-commands to start server and web
+- "build": build both
+- "start": start server and web in prod mode
+- "db:generate": drizzle-kit generate
+- "db:migrate": drizzle-kit migrate
+
+## ACCEPTANCE CHECKLIST
+- The home page shows the **exact** two-panel layout described above.
+- I can type a prompt, optionally upload an image (stored in **Replit App Storage**), and click **Generate Video**.
+- Backend creates a `video_generations` row, posts to n8n, returns ids.
+- The right pane polls every 5s and shows only **completed** items with real video files; images/videos open full-size via `/media/*`.
+- Drizzle migrations run cleanly on Neon.
+- Types are shared and TypeScript builds with `strict` and no errors.
+- Replit dev hot reload works for server and web.
+- Friendly empty, loading, and error states.
+
+## MAKE REASONABLE DEFAULTS
+If anything is unclear, make a reasonable default and keep going. Commit early and often with clear messages.
+
+When finished with a first working pass:
+- Print the root README with run steps.
+- Print any URLs I should open on Replit to try it.
