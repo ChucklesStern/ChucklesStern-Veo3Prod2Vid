@@ -14,7 +14,7 @@ export class DatabaseStorage implements IStorage {
   async createVideoGeneration(generation: InsertVideoGeneration): Promise<VideoGeneration> {
     const [created] = await db
       .insert(videoGenerations)
-      .values(generation)
+      .values([generation])
       .returning();
     return created;
   }

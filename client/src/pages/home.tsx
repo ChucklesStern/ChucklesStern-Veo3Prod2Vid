@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,12 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ObjectUploader } from "@/components/ObjectUploader";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { Video, Lightbulb, Play, ExternalLink, Upload } from "lucide-react";
 import type { VideoGeneration } from "@shared/schema";
-import type { UploadResult } from "@uppy/core";
 
 const formSchema = z.object({
   promptText: z.string().min(1, "Product description is required")
@@ -23,6 +21,8 @@ type FormData = z.infer<typeof formSchema>;
 
 export default function Home() {
   const [uploadedImage, setUploadedImage] = useState<{ path: string; url: string } | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -68,37 +68,55 @@ export default function Home() {
     });
   };
 
-  const handleGetUploadParameters = async () => {
-    // This would typically call an API to get presigned URL
-    // For now, we'll use the direct upload endpoint
-    return {
-      method: 'PUT' as const,
-      url: '/api/upload'
-    };
-  };
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  const handleUploadComplete = async (result: UploadResult) => {
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: "Only PNG, JPG, WEBP, and GIF files are allowed",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate file size (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "File size must be under 10MB",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsUploading(true);
     try {
-      if (result.successful && result.successful.length > 0) {
-        const file = result.successful[0];
-        // Since we're using direct upload, we'll upload the file via our API
-        const uploadResponse = await api.uploadFile(file.data as File);
-        setUploadedImage({
-          path: uploadResponse.objectPath,
-          url: uploadResponse.mediaUrl
-        });
-        toast({
-          title: "Upload successful",
-          description: "Image uploaded successfully!"
-        });
-      }
+      const uploadResponse = await api.uploadFile(file);
+      setUploadedImage({
+        path: uploadResponse.objectPath,
+        url: uploadResponse.mediaUrl
+      });
+      toast({
+        title: "Upload successful",
+        description: "Image uploaded successfully!"
+      });
     } catch (error) {
       toast({
         title: "Upload failed",
         description: error instanceof Error ? error.message : "Unknown error occurred",
         variant: "destructive"
       });
+    } finally {
+      setIsUploading(false);
     }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
   };
 
   const openMedia = (url: string) => {
@@ -188,25 +206,33 @@ export default function Home() {
                       Image Upload (Optional)
                     </Label>
                     <div className="mt-2">
-                      <ObjectUploader
-                        maxNumberOfFiles={1}
-                        maxFileSize={10485760} // 10MB
-                        onGetUploadParameters={handleGetUploadParameters}
-                        onComplete={handleUploadComplete}
-                        buttonClassName="w-full"
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                        className="hidden"
+                      />
+                      <div 
+                        className="w-full border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-primary/40 transition-colors bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                        onClick={handleUploadClick}
                       >
-                        <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-primary/40 transition-colors bg-slate-50 hover:bg-slate-100">
-                          <div className="flex flex-col items-center space-y-3">
-                            <div className="w-12 h-12 bg-slate-200 rounded-lg flex items-center justify-center">
+                        <div className="flex flex-col items-center space-y-3">
+                          <div className="w-12 h-12 bg-slate-200 rounded-lg flex items-center justify-center">
+                            {isUploading ? (
+                              <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                            ) : (
                               <Upload className="text-slate-500" size={24} />
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-slate-700">Click to upload or drag and drop</p>
-                              <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</p>
-                            </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">
+                              {isUploading ? "Uploading..." : "Click to upload or drag and drop"}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</p>
                           </div>
                         </div>
-                      </ObjectUploader>
+                      </div>
                     </div>
                     {uploadedImage && (
                       <div className="mt-2 text-sm text-green-600">
