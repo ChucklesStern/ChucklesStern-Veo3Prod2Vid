@@ -115,7 +115,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taskId,
         promptText: validatedBody.promptText,
         imageOriginalPath: validatedBody.imagePath || null,
-        status: "pending"
+        status: "pending" as const
       });
 
       // Send to n8n webhook

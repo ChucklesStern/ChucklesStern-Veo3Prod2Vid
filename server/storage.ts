@@ -35,7 +35,7 @@ export class DatabaseStorage implements IStorage {
     return generation || undefined;
   }
 
-  async updateVideoGeneration(taskId: string, updates: Partial<VideoGeneration>): Promise<VideoGeneration | undefined> {
+  async updateVideoGeneration(taskId: string, updates: Partial<Omit<VideoGeneration, 'id' | 'createdAt'>>): Promise<VideoGeneration | undefined> {
     const [updated] = await db
       .update(videoGenerations)
       .set({ ...updates, updatedAt: new Date() })
