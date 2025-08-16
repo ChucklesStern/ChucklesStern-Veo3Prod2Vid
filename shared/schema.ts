@@ -10,7 +10,7 @@ export const videoGenerations = pgTable("video_generations", {
   imageOriginalPath: text("image_original_path"),
   imageGenerationPath: text("image_generation_path"),
   videoPath: text("video_path"),
-  status: text("status").notNull().default("pending").$type<"pending" | "processing" | "completed" | "failed">(),
+  status: text("status").notNull().default("pending").$type<"pending" | "processing" | "completed" | "failed" | "200">(),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()

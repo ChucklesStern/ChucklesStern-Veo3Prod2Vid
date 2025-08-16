@@ -14,7 +14,7 @@ export const GenerationCallbackSchema = z.object({
   taskId: z.string(),
   imageGenerationPath: z.string().optional(),
   videoPath: z.string().optional(),
-  status: z.enum(["completed", "failed"]),
+  status: z.enum(["completed", "failed", "200"]),
   errorMessage: z.string().optional()
 });
 

@@ -329,15 +329,68 @@ export default function Home() {
 
                 {/* Video Results List */}
                 {!isLoading && completedVideos.length > 0 && (
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     {completedVideos.map((video: VideoGeneration) => (
-                      <div key={video.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <div className="flex flex-col lg:flex-row lg:items-start space-y-4 lg:space-y-0 lg:space-x-4">
+                      <div key={video.id} className="border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow bg-white">
+                        
+                        {/* Generated Image Section - Hero Display */}
+                        {video.imageGenerationPath && (
+                          <div className="mb-6">
+                            <div 
+                              className="relative group cursor-pointer w-full"
+                              onClick={() => openMedia(`/api/media/${encodeURIComponent(video.imageGenerationPath!.replace('/objects/', ''))}`)}
+                            >
+                              <img 
+                                src={`/api/media/${encodeURIComponent(video.imageGenerationPath.replace('/objects/', ''))}`}
+                                alt="Generated image"
+                                className="w-full max-h-80 object-contain rounded-lg border border-slate-200 group-hover:ring-2 group-hover:ring-emerald-500 transition-all"
+                              />
+                              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 rounded-lg transition-all"></div>
+                              <div className="absolute top-2 right-2 w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <ExternalLink className="text-white" size={12} />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Video Section - Enhanced Display */}
+                        {video.videoPath && (
+                          <div className="mb-6">
+                            <div className="flex items-center justify-center">
+                              <Button
+                                size="lg"
+                                className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3"
+                                onClick={() => openMedia(`/api/media/${encodeURIComponent(video.videoPath!.replace('/objects/', ''))}`)}
+                              >
+                                <Play className="mr-3" size={20} />
+                                Play Generated Video
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Prompt Section with Header */}
+                        <div className="mb-4">
+                          <h4 className="text-sm font-semibold text-slate-900 mb-2">Prompt used to generate content</h4>
+                          <p className="text-sm text-slate-700 leading-relaxed">
+                            {video.promptText}
+                          </p>
+                        </div>
+                        
+                        {/* Metadata & Original Image Reference */}
+                        <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                          <div className="flex items-center space-x-4 text-xs text-slate-500">
+                            <span>{new Date(video.createdAt!).toLocaleString()}</span>
+                            <span className="inline-flex items-center px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1"></div>
+                              Completed
+                            </span>
+                          </div>
                           
-                          {/* Thumbnails Section */}
-                          <div className="flex space-x-3 flex-shrink-0">
-                            {/* Original Image Thumbnail */}
-                            {video.imageOriginalPath && (
+                          {/* Original Image Reference (if exists) */}
+                          {video.imageOriginalPath && (
+                            <div className="flex items-center space-x-2 text-xs text-slate-500">
+                              <span>Original:</span>
                               <div 
                                 className="relative group cursor-pointer"
                                 onClick={() => openMedia(`/api/media/${encodeURIComponent(video.imageOriginalPath!.replace('/objects/', ''))}`)}
@@ -345,64 +398,11 @@ export default function Home() {
                                 <img 
                                   src={`/api/media/${encodeURIComponent(video.imageOriginalPath.replace('/objects/', ''))}`}
                                   alt="Original product image"
-                                  className="w-16 h-16 object-cover rounded-lg border border-slate-200 group-hover:ring-2 group-hover:ring-primary transition-all"
+                                  className="w-8 h-8 object-cover rounded border border-slate-200 group-hover:ring-1 group-hover:ring-primary transition-all"
                                 />
-                                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 rounded-lg transition-all"></div>
-                                <div className="absolute top-1 right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <ExternalLink className="text-white" size={8} />
-                                </div>
                               </div>
-                            )}
-
-                            {/* Generated First Frame */}
-                            {video.imageGenerationPath && (
-                              <div 
-                                className="relative group cursor-pointer"
-                                onClick={() => openMedia(`/api/media/${encodeURIComponent(video.imageGenerationPath!.replace('/objects/', ''))}`)}
-                              >
-                                <img 
-                                  src={`/api/media/${encodeURIComponent(video.imageGenerationPath.replace('/objects/', ''))}`}
-                                  alt="Generated first frame"
-                                  className="w-16 h-16 object-cover rounded-lg border border-slate-200 group-hover:ring-2 group-hover:ring-emerald-500 transition-all"
-                                />
-                                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 rounded-lg transition-all"></div>
-                                <div className="absolute top-1 right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <ExternalLink className="text-white" size={8} />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Content Section */}
-                          <div className="flex-grow min-w-0">
-                            {/* Prompt Text */}
-                            <p className="text-sm text-slate-700 mb-3 line-clamp-3">
-                              {video.promptText}
-                            </p>
-                            
-                            {/* Metadata */}
-                            <div className="flex items-center space-x-4 text-xs text-slate-500 mb-3">
-                              <span>{new Date(video.createdAt!).toLocaleString()}</span>
-                              <span className="inline-flex items-center px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">
-                                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1"></div>
-                                Completed
-                              </span>
                             </div>
-
-                            {/* Video Player Section */}
-                            {video.videoPath && (
-                              <div className="flex items-center space-x-3">
-                                <Button
-                                  size="sm"
-                                  className="bg-slate-900 hover:bg-slate-800 text-white"
-                                  onClick={() => openMedia(`/api/media/${encodeURIComponent(video.videoPath!.replace('/objects/', ''))}`)}
-                                >
-                                  <Play className="mr-2" size={14} />
-                                  Play Video
-                                </Button>
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </div>
                       </div>
                     ))}
