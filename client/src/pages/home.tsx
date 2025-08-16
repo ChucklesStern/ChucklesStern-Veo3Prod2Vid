@@ -123,6 +123,16 @@ export default function Home() {
     window.open(url, '_blank');
   };
 
+  // Helper function to construct proper media URLs
+  const getMediaUrl = (path: string): string => {
+    // If path is already a full URL (starts with http/https), use it directly
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    // Otherwise, it's a relative path that needs the /api/media/ wrapper
+    return `/api/media/${encodeURIComponent(path.replace('/objects/', ''))}`;
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
@@ -338,10 +348,10 @@ export default function Home() {
                           <div className="mb-6">
                             <div 
                               className="relative group cursor-pointer w-full"
-                              onClick={() => openMedia(`/api/media/${encodeURIComponent(video.imageGenerationPath!.replace('/objects/', ''))}`)}
+                              onClick={() => openMedia(getMediaUrl(video.imageGenerationPath!))}
                             >
                               <img 
-                                src={`/api/media/${encodeURIComponent(video.imageGenerationPath.replace('/objects/', ''))}`}
+                                src={getMediaUrl(video.imageGenerationPath)}
                                 alt="Generated image"
                                 className="w-full max-h-80 object-contain rounded-lg border border-slate-200 group-hover:ring-2 group-hover:ring-emerald-500 transition-all"
                               />
@@ -353,18 +363,52 @@ export default function Home() {
                           </div>
                         )}
 
-                        {/* Video Section - Enhanced Display */}
+                        {/* Video Section - Embedded Player */}
                         {video.videoPath && (
                           <div className="mb-6">
-                            <div className="flex items-center justify-center">
-                              <Button
-                                size="lg"
-                                className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3"
-                                onClick={() => openMedia(`/api/media/${encodeURIComponent(video.videoPath!.replace('/objects/', ''))}`)}
+                            <div className="w-full">
+                              <video 
+                                className="w-full max-w-4xl mx-auto rounded-lg border border-slate-200 shadow-sm"
+                                controls
+                                preload="metadata"
+                                style={{ maxHeight: '500px' }}
+                                onError={(e) => {
+                                  console.error('Video failed to load:', e);
+                                  // Show fallback button if video fails
+                                  const target = e.target as HTMLVideoElement;
+                                  target.style.display = 'none';
+                                  const fallback = target.nextElementSibling as HTMLElement;
+                                  if (fallback) fallback.style.display = 'block';
+                                }}
                               >
-                                <Play className="mr-3" size={20} />
-                                Play Generated Video
-                              </Button>
+                                <source src={getMediaUrl(video.videoPath)} type="video/mp4" />
+                                <source src={getMediaUrl(video.videoPath)} type="video/webm" />
+                                <source src={getMediaUrl(video.videoPath)} type="video/quicktime" />
+                                Your browser does not support the video tag.
+                              </video>
+                              
+                              {/* Fallback button - hidden by default, shown if video fails */}
+                              <div className="hidden flex items-center justify-center">
+                                <Button
+                                  size="lg"
+                                  className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3"
+                                  onClick={() => openMedia(getMediaUrl(video.videoPath!))}
+                                >
+                                  <Play className="mr-3" size={20} />
+                                  Open Video in New Tab
+                                </Button>
+                              </div>
+                              
+                              {/* Secondary option to open in new tab */}
+                              <div className="flex justify-center mt-2">
+                                <button
+                                  className="text-xs text-slate-500 hover:text-slate-700 underline flex items-center space-x-1"
+                                  onClick={() => openMedia(getMediaUrl(video.videoPath!))}
+                                >
+                                  <ExternalLink size={10} />
+                                  <span>Open in new tab</span>
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -393,10 +437,10 @@ export default function Home() {
                               <span>Original:</span>
                               <div 
                                 className="relative group cursor-pointer"
-                                onClick={() => openMedia(`/api/media/${encodeURIComponent(video.imageOriginalPath!.replace('/objects/', ''))}`)}
+                                onClick={() => openMedia(getMediaUrl(video.imageOriginalPath!))}
                               >
                                 <img 
-                                  src={`/api/media/${encodeURIComponent(video.imageOriginalPath.replace('/objects/', ''))}`}
+                                  src={getMediaUrl(video.imageOriginalPath)}
                                   alt="Original product image"
                                   className="w-8 h-8 object-cover rounded border border-slate-200 group-hover:ring-1 group-hover:ring-primary transition-all"
                                 />
