@@ -129,8 +129,19 @@ export default function Home() {
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
-    // Otherwise, it's a relative path that needs the /api/media/ wrapper
-    return `/api/media/${encodeURIComponent(path.replace('/objects/', ''))}`;
+    
+    // Handle /public-objects/ paths - serve directly via public endpoint
+    if (path.startsWith('/public-objects/')) {
+      return path;
+    }
+    
+    // Handle /objects/ paths - serve via /api/media/ endpoint
+    if (path.startsWith('/objects/')) {
+      return `/api/media/${encodeURIComponent(path.replace('/objects/', ''))}`;
+    }
+    
+    // Fallback for other relative paths
+    return `/api/media/${encodeURIComponent(path)}`;
   };
 
   return (
