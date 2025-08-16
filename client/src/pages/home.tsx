@@ -217,21 +217,39 @@ export default function Home() {
                         className="w-full border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-primary/40 transition-colors bg-slate-50 hover:bg-slate-100 cursor-pointer"
                         onClick={handleUploadClick}
                       >
-                        <div className="flex flex-col items-center space-y-3">
-                          <div className="w-12 h-12 bg-slate-200 rounded-lg flex items-center justify-center">
-                            {isUploading ? (
-                              <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <Upload className="text-slate-500" size={24} />
-                            )}
+                        {uploadedImage ? (
+                          <div className="flex flex-col items-center space-y-3">
+                            <div className="relative">
+                              <img 
+                                src={uploadedImage.url}
+                                alt="Uploaded image preview"
+                                className="max-w-full max-h-32 object-contain rounded-lg border border-slate-200"
+                              />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-700">
+                                Click to upload a different image
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-medium text-slate-700">
-                              {isUploading ? "Uploading..." : "Click to upload or drag and drop"}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</p>
+                        ) : (
+                          <div className="flex flex-col items-center space-y-3">
+                            <div className="w-12 h-12 bg-slate-200 rounded-lg flex items-center justify-center">
+                              {isUploading ? (
+                                <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Upload className="text-slate-500" size={24} />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-700">
+                                {isUploading ? "Uploading..." : "Click to upload or drag and drop"}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</p>
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </div>
                     {uploadedImage && (
