@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { Video, Lightbulb, Play, ExternalLink, Upload } from "lucide-react";
+import { AuthButton } from "@/components/AuthButton";
 import type { VideoGeneration } from "@shared/schema";
 
 const formSchema = z.object({
@@ -149,15 +150,18 @@ export default function Home() {
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center">
-              <Video className="text-white" size={20} />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-lg flex items-center justify-center">
+                <Video className="text-white" size={20} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">Fabbitt Product to Video Machine</h1>
+                <p className="text-slate-600 mt-1">Transform your text and images into stunning videos</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Fabbitt Product to Video Machine</h1>
-            </div>
+            <AuthButton />
           </div>
-          <p className="text-slate-600 mt-2">Transform your text and images into stunning videos</p>
         </div>
       </header>
 

@@ -1,4 +1,11 @@
-import { videoGenerations, type VideoGeneration, type InsertVideoGeneration } from "@shared/schema";
+import { 
+  videoGenerations, 
+  users,
+  type VideoGeneration, 
+  type InsertVideoGeneration,
+  type User,
+  type InsertUser 
+} from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, or } from "drizzle-orm";
 
@@ -8,13 +15,17 @@ export interface IStorage {
   getVideoGenerationById(id: string): Promise<VideoGeneration | undefined>;
   updateVideoGeneration(taskId: string, updates: Partial<VideoGeneration>): Promise<VideoGeneration | undefined>;
   getCompletedVideoGenerations(limit?: number): Promise<VideoGeneration[]>;
+  
+  // User management for authentication
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: InsertUser): Promise<User>;
 }
 
 export class DatabaseStorage implements IStorage {
   async createVideoGeneration(generation: InsertVideoGeneration): Promise<VideoGeneration> {
     const [created] = await db
       .insert(videoGenerations)
-      .values([generation])
+      .values(generation)
       .returning();
     return created;
   }
@@ -51,6 +62,27 @@ export class DatabaseStorage implements IStorage {
       .where(or(eq(videoGenerations.status, "completed"), eq(videoGenerations.status, "200")))
       .orderBy(desc(videoGenerations.createdAt))
       .limit(limit);
+  }
+
+  // User management methods for authentication
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async upsertUser(userData: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
   }
 }
 

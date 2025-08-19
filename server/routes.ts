@@ -4,6 +4,7 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { storage } from "./storage";
+import { setupGoogleAuth, optionalAuth } from "./googleAuth";
 import {
   GenerationCreateRequestSchema,
   GenerationCallbackSchema,
@@ -29,6 +30,9 @@ const upload = multer({
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const objectStorageService = new ObjectStorageService();
+
+  // Setup Google authentication
+  await setupGoogleAuth(app);
 
   // CORS middleware
   app.use((req, res, next) => {
