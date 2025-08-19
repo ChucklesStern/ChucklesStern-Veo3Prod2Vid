@@ -19,16 +19,13 @@ export interface IStorage {
   // User management for authentication
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: InsertUser): Promise<User>;
-  getAllUsers(): Promise<User[]>;
-  updateUserApproval(id: string, isApproved: boolean): Promise<User | undefined>;
-  updateUserAdmin(id: string, isAdmin: boolean): Promise<User | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
   async createVideoGeneration(generation: InsertVideoGeneration): Promise<VideoGeneration> {
     const [created] = await db
       .insert(videoGenerations)
-      .values(generation)
+      .values([generation])
       .returning();
     return created;
   }
@@ -86,31 +83,6 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return user;
-  }
-
-  async getAllUsers(): Promise<User[]> {
-    return await db
-      .select()
-      .from(users)
-      .orderBy(desc(users.createdAt));
-  }
-
-  async updateUserApproval(id: string, isApproved: boolean): Promise<User | undefined> {
-    const [updated] = await db
-      .update(users)
-      .set({ isApproved, updatedAt: new Date() })
-      .where(eq(users.id, id))
-      .returning();
-    return updated || undefined;
-  }
-
-  async updateUserAdmin(id: string, isAdmin: boolean): Promise<User | undefined> {
-    const [updated] = await db
-      .update(users)
-      .set({ isAdmin, updatedAt: new Date() })
-      .where(eq(users.id, id))
-      .returning();
-    return updated || undefined;
   }
 }
 

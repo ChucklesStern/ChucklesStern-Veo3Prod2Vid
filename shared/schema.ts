@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, timestamp, index, jsonb, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -42,8 +42,6 @@ export const users = pgTable("users", {
   email: text("email").unique(),
   name: text("name"),
   profileImageUrl: text("profile_image_url"),
-  isApproved: boolean("is_approved").default(false).notNull(),
-  isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
