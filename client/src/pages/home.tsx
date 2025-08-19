@@ -155,7 +155,6 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Fabbitt Product to Video Machine</h1>
-              <p className="text-slate-600 text-sm font-medium">( inspired by Kev )</p>
             </div>
           </div>
           <p className="text-slate-600 mt-2">Transform your text and images into stunning videos</p>
