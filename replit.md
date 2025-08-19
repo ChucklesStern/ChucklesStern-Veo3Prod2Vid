@@ -45,6 +45,8 @@ Preferred communication style: Simple, everyday language.
 ### Authentication and Authorization
 - **Replit Auth**: Integrated Replit OpenID Connect authentication for secure user sessions
 - **Protected Routes**: All video generation and file upload endpoints require authentication
+- **User Access Control**: Admin approval system - new users must be approved before accessing features
+- **Role-Based Access**: Admin users can approve/deny access and grant admin privileges to others
 - **Session Management**: PostgreSQL-backed session storage with 7-day TTL
 - **User Management**: Automatic user creation and profile management through Replit OAuth claims
 

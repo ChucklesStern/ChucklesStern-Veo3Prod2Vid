@@ -133,6 +133,14 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
+  // Check if user is approved
+  const dbUser = await storage.getUser(user.claims.sub);
+  if (!dbUser?.isApproved) {
+    return res.status(403).json({ 
+      message: "Access denied. Your account is pending approval. Please contact an administrator." 
+    });
+  }
+
   const now = Math.floor(Date.now() / 1000);
   if (now <= user.expires_at) {
     return next();
@@ -153,4 +161,19 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     res.status(401).json({ message: "Unauthorized" });
     return;
   }
+};
+
+export const isAdmin: RequestHandler = async (req, res, next) => {
+  const user = req.user as any;
+
+  if (!req.isAuthenticated() || !user.expires_at) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const dbUser = await storage.getUser(user.claims.sub);
+  if (!dbUser?.isAdmin) {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+
+  next();
 };
