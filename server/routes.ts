@@ -4,7 +4,7 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { storage } from "./storage";
-import { setupGoogleAuth, optionalAuth } from "./googleAuth";
+import { setupGoogleAuth, isAuthenticated } from "./googleAuth";
 import {
   GenerationCreateRequestSchema,
   GenerationCallbackSchema,
@@ -68,8 +68,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload endpoint
-  app.post("/api/upload", upload.single('file'), async (req, res) => {
+  // Upload endpoint - requires authentication
+  app.post("/api/upload", isAuthenticated, upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file provided" });
@@ -128,8 +128,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create video generation
-  app.post("/api/generations", async (req, res) => {
+  // Create video generation - requires authentication
+  app.post("/api/generations", isAuthenticated, async (req, res) => {
     try {
       const validatedBody = GenerationCreateRequestSchema.parse(req.body);
       
@@ -216,8 +216,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get completed generations
-  app.get("/api/generations", async (req, res) => {
+  // Get completed generations - requires authentication
+  app.get("/api/generations", isAuthenticated, async (req, res) => {
     try {
       const onlyCompleted = req.query.onlyCompleted === 'true';
       
@@ -236,8 +236,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get single generation
-  app.get("/api/generations/:id", async (req, res) => {
+  // Get single generation - requires authentication
+  app.get("/api/generations/:id", isAuthenticated, async (req, res) => {
     try {
       const generation = await storage.getVideoGenerationById(req.params.id);
       if (!generation) {
