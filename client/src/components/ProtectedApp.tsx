@@ -48,7 +48,10 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
                 Sign in with your Google account to get started
               </p>
               <Button
-                onClick={() => window.location.href = "/api/auth/google"}
+                onClick={() => {
+                  // Use the full Replit URL for the OAuth redirect
+                  window.location.href = `https://${window.location.host}/api/auth/google`;
+                }}
                 className="w-full flex items-center justify-center gap-2"
               >
                 <LogIn className="h-4 w-4" />
