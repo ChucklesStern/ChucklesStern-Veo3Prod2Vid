@@ -36,7 +36,7 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table for Google authentication
+// User storage table for Replit authentication
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").unique(),

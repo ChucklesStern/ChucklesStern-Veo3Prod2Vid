@@ -45,17 +45,14 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
           <CardContent className="space-y-4">
             <div className="text-center">
               <p className="text-sm text-slate-600 mb-4">
-                Sign in with your Google account to get started
+                Sign in with your Replit account to get started
               </p>
               <Button
-                onClick={() => {
-                  // Use the full Replit URL for the OAuth redirect
-                  window.location.href = `https://${window.location.host}/api/auth/google`;
-                }}
+                onClick={() => window.location.href = "/api/login"}
                 className="w-full flex items-center justify-center gap-2"
               >
                 <LogIn className="h-4 w-4" />
-                Sign In with Google
+                Sign In with Replit
               </Button>
             </div>
           </CardContent>

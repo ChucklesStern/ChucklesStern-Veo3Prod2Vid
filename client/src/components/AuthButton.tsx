@@ -26,11 +26,11 @@ export function AuthButton() {
       <Button
         variant="outline"
         size="sm"
-        onClick={() => window.location.href = "/api/auth/google"}
+        onClick={() => window.location.href = "/api/login"}
         className="flex items-center gap-2"
       >
         <LogIn className="h-4 w-4" />
-        Sign In with Google
+        Sign In with Replit
       </Button>
     );
   }
@@ -56,7 +56,7 @@ export function AuthButton() {
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => window.location.href = "/api/auth/logout"}
+          onClick={() => window.location.href = "/api/logout"}
           className="cursor-pointer"
         >
           <LogOut className="mr-2 h-4 w-4" />

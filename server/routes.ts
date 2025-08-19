@@ -4,7 +4,7 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { storage } from "./storage";
-import { setupGoogleAuth, isAuthenticated } from "./googleAuth";
+import { setupAuth, isAuthenticated } from "./replitAuth";
 import {
   GenerationCreateRequestSchema,
   GenerationCallbackSchema,
@@ -31,8 +31,8 @@ const upload = multer({
 export async function registerRoutes(app: Express): Promise<Server> {
   const objectStorageService = new ObjectStorageService();
 
-  // Setup Google authentication
-  await setupGoogleAuth(app);
+  // Setup Replit authentication
+  await setupAuth(app);
 
   // CORS middleware
   app.use((req, res, next) => {
@@ -108,6 +108,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Upload error:', error);
       res.status(500).json({ error: error instanceof Error ? error.message : 'Upload failed' });
+    }
+  });
+
+  // Auth routes
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
     }
   });
 

@@ -43,9 +43,10 @@ Preferred communication style: Simple, everyday language.
 - **Status Tracking**: Real-time status updates through database polling mechanism
 
 ### Authentication and Authorization
-- **No Authentication**: Deliberately designed without user authentication or sessions
-- **Public Access**: All endpoints are publicly accessible by design
-- **Object Access**: File access controlled through Google Cloud Storage ACL policies
+- **Replit Auth**: Integrated Replit OpenID Connect authentication for secure user sessions
+- **Protected Routes**: All video generation and file upload endpoints require authentication
+- **Session Management**: PostgreSQL-backed session storage with 7-day TTL
+- **User Management**: Automatic user creation and profile management through Replit OAuth claims
 
 ## External Dependencies
 
