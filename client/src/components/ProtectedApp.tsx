@@ -40,10 +40,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
                 <Video className="text-white" size={32} />
               </div>
             </div>
-            <CardTitle className="text-2xl">Welcome to Fabbitt</CardTitle>
-            <p className="text-slate-600 mt-2">
-              Transform your text and images into stunning videos
-            </p>
+            <CardTitle className="text-2xl">Fabbitt v1</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-center">
@@ -57,15 +54,6 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
                 <LogIn className="h-4 w-4" />
                 Sign In with Google
               </Button>
-            </div>
-            <div className="pt-4 border-t border-slate-200">
-              <h3 className="font-medium text-slate-900 mb-2">What you can do:</h3>
-              <ul className="text-sm text-slate-600 space-y-1">
-                <li>• Create videos from text descriptions</li>
-                <li>• Upload images to enhance your videos</li>
-                <li>• View your completed video generations</li>
-                <li>• Get real-time updates on video processing</li>
-              </ul>
             </div>
           </CardContent>
         </Card>
