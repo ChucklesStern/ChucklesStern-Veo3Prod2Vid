@@ -15,7 +15,8 @@ import { AuthButton } from "@/components/AuthButton";
 import type { VideoGeneration } from "@shared/schema";
 
 const formSchema = z.object({
-  promptText: z.string().min(1, "Product description is required")
+  promptText: z.string().min(1, "Product description is required"),
+  brand_persona: z.string().optional()
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -30,7 +31,8 @@ export default function Home() {
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      promptText: ""
+      promptText: "",
+      brand_persona: "Any images that you create should make use of our brand persona named Ayesha. Ayesha is an attractive and thin 27 year old Pakistani woman wearing large designer style sunglasses that cover her eyes. She does not resemble any public figure or celebrity. The brand persona photos may be used as a guide in creating a visual representation of Ayesha that you will use for your reference image and the subsequent video"
     }
   });
 
@@ -65,7 +67,8 @@ export default function Home() {
   const onSubmit = (data: FormData) => {
     createGenerationMutation.mutate({
       promptText: data.promptText,
-      imagePath: uploadedImage?.path
+      imagePath: uploadedImage?.path,
+      brand_persona: data.brand_persona
     });
   };
 
@@ -220,6 +223,25 @@ export default function Home() {
                     {form.formState.errors.promptText && (
                       <p className="text-sm text-red-600 mt-1">
                         {form.formState.errors.promptText.message}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Brand Persona */}
+                  <div>
+                    <Label htmlFor="brand_persona" className="text-sm font-medium text-slate-700">
+                      Brand Persona
+                    </Label>
+                    <Textarea
+                      id="brand_persona"
+                      placeholder="Brand persona description..."
+                      className="mt-2 resize-none"
+                      rows={3}
+                      {...form.register("brand_persona")}
+                    />
+                    {form.formState.errors.brand_persona && (
+                      <p className="text-sm text-red-600 mt-1">
+                        {form.formState.errors.brand_persona.message}
                       </p>
                     )}
                   </div>

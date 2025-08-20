@@ -7,7 +7,8 @@ export const UploadResponseSchema = z.object({
 
 export const GenerationCreateRequestSchema = z.object({
   promptText: z.string().min(1, "Prompt text is required"),
-  imagePath: z.string().optional()
+  imagePath: z.string().optional(),
+  brand_persona: z.string().optional()
 });
 
 export const GenerationCallbackSchema = z.object({
@@ -23,8 +24,9 @@ export const N8nWebhookPayloadSchema = z.object({
   promptText: z.string(),
   imagePath: z.string().nullable(),
   Imageurl: z.string().nullable(),
-  baseModelImage1Url: z.string().nullable(),
-  baseModelImage2Url: z.string().nullable()
+  brandPersonaImage1Url: z.string().nullable(),
+  brandPersonaImage2Url: z.string().nullable(),
+  brand_persona: z.string().nullable()
 });
 
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;

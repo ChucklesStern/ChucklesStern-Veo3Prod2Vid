@@ -208,20 +208,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imageUrl = `${protocol}://${host}${validatedBody.imagePath}`;
       }
 
-      // Get base model image URLs - construct dynamically using current host
-      const baseModelImage1Path = process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png";
-      const baseModelImage2Path = process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png";
+      // Get brand persona image URLs - construct dynamically using current host
+      const brandPersonaImage1Path = process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png";
+      const brandPersonaImage2Path = process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png";
       
-      const baseModelImage1Url = `${protocol}://${host}${baseModelImage1Path}`;
-      const baseModelImage2Url = `${protocol}://${host}${baseModelImage2Path}`;
+      const brandPersonaImage1Url = `${protocol}://${host}${brandPersonaImage1Path}`;
+      const brandPersonaImage2Url = `${protocol}://${host}${brandPersonaImage2Path}`;
 
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId,
         promptText: validatedBody.promptText,
         imagePath: validatedBody.imagePath || null,
         Imageurl: imageUrl,
-        baseModelImage1Url,
-        baseModelImage2Url
+        brandPersonaImage1Url,
+        brandPersonaImage2Url,
+        brand_persona: validatedBody.brand_persona || null
       });
 
       const webhookResponse = await fetch(n8nWebhookUrl, {

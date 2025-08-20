@@ -16,7 +16,9 @@ export const videoGenerations = pgTable("video_generations", {
   updatedAt: timestamp("updated_at").defaultNow()
 });
 
-export const insertVideoGenerationSchema = createInsertSchema(videoGenerations).omit({
+export const insertVideoGenerationSchema = createInsertSchema(videoGenerations, {
+  status: z.enum(["pending", "processing", "completed", "failed", "200"]).optional()
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true
