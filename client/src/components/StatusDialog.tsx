@@ -36,6 +36,24 @@ export function StatusDialog({ isOpen, onClose, status, errorMessage, startTime 
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatGenerationTime = (startTime: Date): string => {
+    const now = new Date();
+    const totalSeconds = Math.floor((now.getTime() - startTime.getTime()) / 1000);
+    
+    if (totalSeconds < 60) {
+      return `${totalSeconds} second${totalSeconds !== 1 ? 's' : ''}`;
+    } else {
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      
+      if (secs === 0) {
+        return `${mins} minute${mins !== 1 ? 's' : ''}`;
+      } else {
+        return `${mins} minute${mins !== 1 ? 's' : ''} and ${secs} second${secs !== 1 ? 's' : ''}`;
+      }
+    }
+  };
+
   const getStatusContent = () => {
     switch (status) {
       case "pending":
@@ -59,7 +77,7 @@ export function StatusDialog({ isOpen, onClose, status, errorMessage, startTime 
         return {
           icon: <CheckCircle className="h-8 w-8 text-green-500" />,
           title: "Video Successfully Generated!",
-          message: "Your video has been created and is now available in the results panel.",
+          message: `Your video was generated in ${formatGenerationTime(startTime)}. It is now available in the results panel.`,
           showTimer: false,
           canClose: true,
         };
