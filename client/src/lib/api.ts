@@ -1,5 +1,5 @@
 import { apiRequest } from "./queryClient";
-import type { UploadResponse, GenerationCreateRequest } from "@shared/types";
+import type { UploadResponse, GenerationCreateRequest, GenerationStatusResponse } from "@shared/types";
 
 export const api = {
   // Upload file
@@ -35,6 +35,12 @@ export const api = {
   // Get single generation
   getGeneration: async (id: string) => {
     const response = await apiRequest('GET', `/api/generations/${id}`);
+    return response.json();
+  },
+
+  // Get generation status by taskId
+  getGenerationStatus: async (taskId: string): Promise<GenerationStatusResponse> => {
+    const response = await apiRequest('GET', `/api/generations/status/${taskId}`);
     return response.json();
   }
 };

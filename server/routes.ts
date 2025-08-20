@@ -299,6 +299,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get generation status by taskId - requires authentication
+  app.get("/api/generations/status/:taskId", isAuthenticated, async (req, res) => {
+    try {
+      const generation = await storage.getVideoGenerationByTaskId(req.params.taskId);
+      if (!generation) {
+        return res.status(404).json({ error: "Generation not found" });
+      }
+      // Return only status-relevant fields for efficiency
+      res.json({
+        id: generation.id,
+        taskId: generation.taskId,
+        status: generation.status,
+        errorMessage: generation.errorMessage,
+        createdAt: generation.createdAt
+      });
+    } catch (error) {
+      console.error('Get generation status error:', error);
+      res.status(500).json({ error: "Failed to fetch generation status" });
+    }
+  });
+
   // Get single generation - requires authentication
   app.get("/api/generations/:id", isAuthenticated, async (req, res) => {
     try {
