@@ -30,14 +30,8 @@ async function listBucketContents() {
     
     const bucket = storage.bucket(BUCKET_NAME);
     
-    // First, verify bucket exists and is accessible
-    try {
-      await bucket.getMetadata();
-      console.log("✅ Bucket is accessible\n");
-    } catch (error) {
-      console.error("❌ Cannot access bucket:", error.message);
-      return;
-    }
+    // Note: Skipping bucket metadata check due to permissions
+    console.log("Attempting to list files...\n");
     
     // Check ALL files in the bucket (no prefix)
     console.log("Listing ALL files in the bucket...\n");
