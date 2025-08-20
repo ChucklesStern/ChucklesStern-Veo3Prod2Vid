@@ -198,17 +198,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("N8N_WEBHOOK_URL not configured");
       }
 
+      // Get protocol and host for URL construction
+      const protocol = req.headers['x-forwarded-proto'] || 'http';
+      const host = req.headers.host;
+
       // Construct full public URL for the image
       let imageUrl = null;
       if (validatedBody.imagePath) {
-        const protocol = req.headers['x-forwarded-proto'] || 'http';
-        const host = req.headers.host;
         imageUrl = `${protocol}://${host}${validatedBody.imagePath}`;
       }
 
-      // Get base model image URLs from environment
-      const baseModelImage1Url = process.env.BASE_MODEL_IMAGE_1_URL || null;
-      const baseModelImage2Url = process.env.BASE_MODEL_IMAGE_2_URL || null;
+      // Get base model image URLs - construct dynamically using current host
+      const baseModelImage1Path = process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png";
+      const baseModelImage2Path = process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png";
+      
+      const baseModelImage1Url = `${protocol}://${host}${baseModelImage1Path}`;
+      const baseModelImage2Url = `${protocol}://${host}${baseModelImage2Path}`;
 
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId,
