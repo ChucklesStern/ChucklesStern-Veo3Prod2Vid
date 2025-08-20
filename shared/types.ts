@@ -22,7 +22,9 @@ export const N8nWebhookPayloadSchema = z.object({
   taskId: z.string(),
   promptText: z.string(),
   imagePath: z.string().nullable(),
-  Imageurl: z.string().nullable()
+  Imageurl: z.string().nullable(),
+  baseModelImage1Url: z.string().nullable(),
+  baseModelImage2Url: z.string().nullable()
 });
 
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;

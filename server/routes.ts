@@ -206,11 +206,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imageUrl = `${protocol}://${host}${validatedBody.imagePath}`;
       }
 
+      // Get base model image URLs from environment
+      const baseModelImage1Url = process.env.BASE_MODEL_IMAGE_1_URL || null;
+      const baseModelImage2Url = process.env.BASE_MODEL_IMAGE_2_URL || null;
+
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId,
         promptText: validatedBody.promptText,
         imagePath: validatedBody.imagePath || null,
-        Imageurl: imageUrl
+        Imageurl: imageUrl,
+        baseModelImage1Url,
+        baseModelImage2Url
       });
 
       const webhookResponse = await fetch(n8nWebhookUrl, {
