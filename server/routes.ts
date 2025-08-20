@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import { randomUUID } from "crypto";
-import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectStorageService, ObjectNotFoundError, objectStorageClient, parseObjectPath } from "./objectStorage";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import {
@@ -124,6 +124,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+
+  // List files in object storage
+  app.get("/api/storage/list/:directory?", async (req, res) => {
+    try {
+      const { directory = "public" } = req.params;
+      const objectStorageService = new ObjectStorageService();
+      
+      if (directory === "public") {
+        const searchPaths = objectStorageService.getPublicObjectSearchPaths();
+        const files = [];
+        
+        for (const searchPath of searchPaths) {
+          const { bucketName, objectName } = parseObjectPath(searchPath);
+          const bucket = objectStorageClient.bucket(bucketName);
+          
+          const [bucketFiles] = await bucket.getFiles({
+            prefix: objectName + "/",
+            delimiter: "/"
+          });
+          
+          files.push(...bucketFiles.map(file => ({
+            name: file.name,
+            size: file.metadata.size,
+            updated: file.metadata.updated,
+            contentType: file.metadata.contentType
+          })));
+        }
+        
+        res.json({ files, directory: "public" });
+      } else {
+        res.status(400).json({ error: "Only public directory listing is supported" });
+      }
+    } catch (error) {
+      console.error("Error listing storage files:", error);
+      res.status(500).json({ error: "Failed to list files" });
+    }
+  });
 
   // Media serving endpoint
   app.get("/api/media/:key", async (req, res) => {
