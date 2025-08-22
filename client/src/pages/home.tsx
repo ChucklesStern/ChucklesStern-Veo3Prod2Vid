@@ -14,6 +14,8 @@ import { Video, Lightbulb, Play, ExternalLink, Upload } from "lucide-react";
 import { AuthButton } from "@/components/AuthButton";
 import { GenerationStatusManager } from "@/components/GenerationStatusManager";
 import { FloatingStatusPanel } from "@/components/FloatingStatusPanel";
+import { NotificationSettings } from "@/components/NotificationSettings";
+import { useNotificationSound } from "@/lib/notification-sound";
 import type { VideoGeneration } from "@shared/schema";
 
 const formSchema = z.object({
@@ -29,6 +31,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { initialize } = useNotificationSound();
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -72,6 +75,9 @@ export default function Home() {
   });
 
   const onSubmit = (data: FormData, mutation: ReturnType<typeof createGenerationMutation>) => {
+    // Initialize audio context on first user interaction
+    initialize();
+    
     mutation.mutate({
       promptText: data.promptText,
       imagePath: uploadedImage?.path,
@@ -176,7 +182,10 @@ export default function Home() {
                 <p className="text-slate-600 mt-1">Transform your text and images into stunning videos</p>
               </div>
             </div>
-            <AuthButton />
+            <div className="flex items-center gap-3">
+              <NotificationSettings />
+              <AuthButton />
+            </div>
           </div>
         </div>
       </header>
@@ -343,7 +352,7 @@ export default function Home() {
           </div>
 
           {/* Right Panel - Video Results */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3" data-results-section>
             <Card className="shadow-sm min-h-[600px]">
               <CardHeader>
                 <CardTitle className="flex items-center space-x-2">
