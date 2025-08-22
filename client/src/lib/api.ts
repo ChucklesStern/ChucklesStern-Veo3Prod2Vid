@@ -1,5 +1,5 @@
 import { apiRequest } from "./queryClient";
-import type { UploadResponse, GenerationCreateRequest, GenerationStatusResponse } from "@shared/types";
+import type { UploadResponse, GenerationCreateRequest, GenerationStatusResponse, RetryGenerationRequest, RetryGenerationResponse } from "@shared/types";
 
 export const api = {
   // Upload file
@@ -41,6 +41,12 @@ export const api = {
   // Get generation status by taskId
   getGenerationStatus: async (taskId: string): Promise<GenerationStatusResponse> => {
     const response = await apiRequest('GET', `/api/generations/status/${taskId}`);
+    return response.json();
+  },
+
+  // Retry failed generation
+  retryGeneration: async (data: RetryGenerationRequest): Promise<RetryGenerationResponse> => {
+    const response = await apiRequest('POST', '/api/generations/retry', data);
     return response.json();
   }
 };

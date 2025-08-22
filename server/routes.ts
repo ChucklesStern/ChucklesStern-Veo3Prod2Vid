@@ -9,9 +9,159 @@ import {
   GenerationCreateRequestSchema,
   GenerationCallbackSchema,
   N8nWebhookPayloadSchema,
-  UploadResponseSchema
+  UploadResponseSchema,
+  RetryGenerationRequestSchema,
+  RetryGenerationResponseSchema
 } from "@shared/types";
 import { z } from "zod";
+
+// Webhook timeout configuration (in milliseconds)
+const WEBHOOK_TIMEOUT = 30000; // 30 seconds
+const MAX_RETRIES = 3;
+const BASE_RETRY_DELAY = 1000; // 1 second
+
+// Helper function to calculate exponential backoff delay
+function calculateRetryDelay(retryCount: number): number {
+  return BASE_RETRY_DELAY * Math.pow(2, retryCount);
+}
+
+// Helper function to determine error type
+function determineErrorType(error: any): "webhook_failure" | "network_error" | "timeout" | "validation_error" | "unknown" {
+  if (error.name === 'AbortError' || error.message?.includes('timeout')) {
+    return 'timeout';
+  }
+  if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
+    return 'network_error';
+  }
+  if (error instanceof z.ZodError) {
+    return 'validation_error';
+  }
+  if (error.status >= 400 && error.status < 500) {
+    return 'webhook_failure';
+  }
+  return 'unknown';
+}
+
+// Helper function to send webhook with timeout
+async function sendWebhookWithTimeout(url: string, payload: any, timeout: number = WEBHOOK_TIMEOUT) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
+// Enhanced webhook handler with error capture and retry logic
+async function handleWebhookCall(taskId: string, webhookPayload: any): Promise<{
+  success: boolean;
+  shouldRetry: boolean;
+  errorDetails?: any;
+}> {
+  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL;
+  if (!n8nWebhookUrl) {
+    throw new Error("N8N_WEBHOOK_URL not configured");
+  }
+
+  let webhookResponse: Response;
+  let responseBody: string = "";
+  let errorType: "webhook_failure" | "network_error" | "timeout" | "validation_error" | "unknown" = "unknown";
+  
+  try {
+    // Record attempt time
+    await storage.updateVideoGeneration(taskId, { 
+      lastAttemptAt: new Date() 
+    });
+
+    webhookResponse = await sendWebhookWithTimeout(n8nWebhookUrl, webhookPayload);
+    
+    // Always capture response body for analysis
+    try {
+      responseBody = await webhookResponse.text();
+    } catch (bodyError) {
+      console.warn('Failed to read response body:', bodyError);
+      responseBody = "Failed to read response body";
+    }
+
+    if (!webhookResponse.ok) {
+      errorType = determineErrorType({ status: webhookResponse.status });
+      
+      const errorDetails = {
+        status: webhookResponse.status,
+        statusText: webhookResponse.statusText,
+        body: responseBody,
+        headers: Object.fromEntries(webhookResponse.headers.entries()),
+        timestamp: new Date().toISOString()
+      };
+
+      await storage.updateVideoGeneration(taskId, {
+        status: "failed",
+        errorMessage: `Webhook failed with status ${webhookResponse.status}: ${webhookResponse.statusText}`,
+        errorDetails,
+        errorType,
+        webhookResponseStatus: webhookResponse.status.toString(),
+        webhookResponseBody: responseBody
+      });
+
+      // Determine if we should retry based on error type and status
+      const shouldRetry = errorType === "network_error" || 
+                         errorType === "timeout" || 
+                         (webhookResponse.status >= 500 && webhookResponse.status < 600);
+
+      return {
+        success: false,
+        shouldRetry,
+        errorDetails
+      };
+    }
+
+    // Success case
+    return {
+      success: true,
+      shouldRetry: false
+    };
+
+  } catch (error: any) {
+    errorType = determineErrorType(error);
+    
+    const errorDetails = {
+      message: error.message,
+      type: error.name,
+      code: error.code,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    };
+
+    await storage.updateVideoGeneration(taskId, {
+      status: "failed",
+      errorMessage: `Webhook call failed: ${error.message}`,
+      errorDetails,
+      errorType,
+      webhookResponseStatus: null,
+      webhookResponseBody: responseBody || null
+    });
+
+    // Network errors and timeouts are retryable
+    const shouldRetry = errorType === "network_error" || errorType === "timeout";
+
+    return {
+      success: false,
+      shouldRetry,
+      errorDetails
+    };
+  }
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -192,12 +342,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "pending" as const
       });
 
-      // Send to n8n webhook
-      const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL;
-      if (!n8nWebhookUrl) {
-        throw new Error("N8N_WEBHOOK_URL not configured");
-      }
-
       // Get protocol and host for URL construction
       const protocol = req.headers['x-forwarded-proto'] || 'http';
       const host = req.headers.host;
@@ -225,22 +369,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         brand_persona: validatedBody.brand_persona || null
       });
 
-      const webhookResponse = await fetch(n8nWebhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(webhookPayload)
-      });
-
-      if (!webhookResponse.ok) {
-        const responseText = await webhookResponse.text();
-        await storage.updateVideoGeneration(taskId, { 
-          status: "failed", 
-          errorMessage: `Webhook failed: ${webhookResponse.statusText}` 
-        });
-        throw new Error(`Webhook failed: ${webhookResponse.statusText}`);
+      // Use enhanced webhook handler
+      const webhookResult = await handleWebhookCall(taskId, webhookPayload);
+      
+      if (!webhookResult.success) {
+        if (webhookResult.shouldRetry) {
+          // Set up for retry with exponential backoff
+          const retryCount = 0;
+          const nextRetryAt = new Date(Date.now() + calculateRetryDelay(retryCount));
+          
+          await storage.updateVideoGeneration(taskId, {
+            retryCount: retryCount.toString(),
+            maxRetries: MAX_RETRIES.toString(),
+            nextRetryAt
+          });
+          
+          throw new Error(`Webhook failed but will be retried. Next retry at: ${nextRetryAt.toISOString()}`);
+        } else {
+          throw new Error(`Webhook failed permanently: ${webhookResult.errorDetails?.message || 'Unknown error'}`);
+        }
       }
 
-      // Update status to processing
+      // Update status to processing on success
       await storage.updateVideoGeneration(taskId, { status: "processing" });
 
       res.json({ id: generation.id, taskId: generation.taskId });
@@ -306,12 +456,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!generation) {
         return res.status(404).json({ error: "Generation not found" });
       }
-      // Return only status-relevant fields for efficiency
+      // Return all status-relevant fields including new error handling fields
       res.json({
         id: generation.id,
         taskId: generation.taskId,
         status: generation.status,
         errorMessage: generation.errorMessage,
+        errorDetails: generation.errorDetails,
+        errorType: generation.errorType,
+        retryCount: generation.retryCount,
+        maxRetries: generation.maxRetries,
+        nextRetryAt: generation.nextRetryAt?.toISOString() || null,
+        webhookResponseStatus: generation.webhookResponseStatus,
+        webhookResponseBody: generation.webhookResponseBody,
+        lastAttemptAt: generation.lastAttemptAt?.toISOString() || null,
         createdAt: generation.createdAt
       });
     } catch (error) {
@@ -331,6 +489,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Get generation error:', error);
       res.status(500).json({ error: "Failed to fetch generation" });
+    }
+  });
+
+  // Manual retry endpoint - requires authentication
+  app.post("/api/generations/retry", isAuthenticated, async (req, res) => {
+    try {
+      const validatedBody = RetryGenerationRequestSchema.parse(req.body);
+      
+      const generation = await storage.getVideoGenerationByTaskId(validatedBody.taskId);
+      if (!generation) {
+        return res.status(404).json({ error: "Generation not found" });
+      }
+
+      if (generation.status !== "failed") {
+        return res.status(400).json({ error: "Only failed generations can be retried" });
+      }
+
+      const currentRetryCount = parseInt(generation.retryCount || "0");
+      const maxRetries = parseInt(generation.maxRetries || "3");
+
+      if (currentRetryCount >= maxRetries) {
+        return res.status(400).json({ error: "Maximum retry attempts exceeded" });
+      }
+
+      // Reconstruct the webhook payload
+      const protocol = req.headers['x-forwarded-proto'] || 'http';
+      const host = req.headers.host;
+
+      let imageUrl = null;
+      if (generation.imageOriginalPath) {
+        imageUrl = `${protocol}://${host}${generation.imageOriginalPath}`;
+      }
+
+      const brandPersonaImage1Path = process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png";
+      const brandPersonaImage2Path = process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png";
+      
+      const brandPersonaImage1Url = `${protocol}://${host}${brandPersonaImage1Path}`;
+      const brandPersonaImage2Url = `${protocol}://${host}${brandPersonaImage2Path}`;
+
+      const webhookPayload = N8nWebhookPayloadSchema.parse({
+        taskId: generation.taskId,
+        promptText: generation.promptText,
+        imagePath: generation.imageOriginalPath,
+        Imageurl: imageUrl,
+        brandPersonaImage1Url,
+        brandPersonaImage2Url,
+        brand_persona: null // Brand persona is not stored, defaulting to null
+      });
+
+      // Reset status to pending for retry
+      await storage.updateVideoGeneration(generation.taskId, {
+        status: "pending",
+        errorMessage: null,
+        errorDetails: null,
+        errorType: null,
+        webhookResponseStatus: null,
+        webhookResponseBody: null
+      });
+
+      // Attempt webhook call
+      const webhookResult = await handleWebhookCall(generation.taskId, webhookPayload);
+      
+      if (!webhookResult.success) {
+        const newRetryCount = currentRetryCount + 1;
+        
+        if (webhookResult.shouldRetry && newRetryCount < maxRetries) {
+          // Schedule next retry
+          const nextRetryAt = new Date(Date.now() + calculateRetryDelay(newRetryCount));
+          
+          await storage.updateVideoGeneration(generation.taskId, {
+            retryCount: newRetryCount.toString(),
+            nextRetryAt
+          });
+
+          const response = RetryGenerationResponseSchema.parse({
+            success: false,
+            message: `Retry failed. Next automatic retry scheduled for ${nextRetryAt.toISOString()}`,
+            nextRetryAt: nextRetryAt.toISOString()
+          });
+          
+          return res.json(response);
+        } else {
+          // No more retries
+          await storage.updateVideoGeneration(generation.taskId, {
+            retryCount: newRetryCount.toString(),
+            nextRetryAt: null
+          });
+
+          const response = RetryGenerationResponseSchema.parse({
+            success: false,
+            message: "Retry failed permanently. Maximum retry attempts exceeded."
+          });
+          
+          return res.json(response);
+        }
+      }
+
+      // Success - update to processing
+      await storage.updateVideoGeneration(generation.taskId, { 
+        status: "processing",
+        retryCount: (currentRetryCount + 1).toString()
+      });
+
+      const response = RetryGenerationResponseSchema.parse({
+        success: true,
+        message: "Retry successful. Generation is now processing."
+      });
+
+      res.json(response);
+    } catch (error) {
+      console.error('Manual retry error:', error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Validation failed", details: error.errors });
+      }
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Retry failed' });
     }
   });
 

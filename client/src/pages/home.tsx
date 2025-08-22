@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,9 +12,9 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { Video, Lightbulb, Play, ExternalLink, Upload } from "lucide-react";
 import { AuthButton } from "@/components/AuthButton";
-import { StatusDialog } from "@/components/StatusDialog";
+import { GenerationStatusManager } from "@/components/GenerationStatusManager";
+import { FloatingStatusPanel } from "@/components/FloatingStatusPanel";
 import type { VideoGeneration } from "@shared/schema";
-import type { GenerationStatusResponse } from "@shared/types";
 
 const formSchema = z.object({
   promptText: z.string().min(1, "Product description is required"),
@@ -26,15 +26,7 @@ type FormData = z.infer<typeof formSchema>;
 export default function Home() {
   const [uploadedImage, setUploadedImage] = useState<{ path: string; url: string } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [currentGeneration, setCurrentGeneration] = useState<{
-    taskId: string;
-    startTime: Date;
-    status: GenerationStatusResponse["status"];
-    errorMessage?: string | null;
-  } | null>(null);
-  const [showStatusDialog, setShowStatusDialog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -54,60 +46,8 @@ export default function Home() {
     refetchIntervalInBackground: true
   });
 
-  // Status polling logic
-  const pollGenerationStatus = useCallback(async (taskId: string) => {
-    try {
-      const status = await api.getGenerationStatus(taskId);
-      
-      setCurrentGeneration(prev => prev ? {
-        ...prev,
-        status: status.status,
-        errorMessage: status.errorMessage
-      } : null);
 
-      // Check if generation is complete
-      if (status.status === "completed" || status.status === "200" || status.status === "failed") {
-        // Stop polling
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        
-        // Refresh the completed videos list
-        queryClient.invalidateQueries({ queryKey: ['/api/generations'] });
-      }
-    } catch (error) {
-      console.error('Error polling status:', error);
-      // Continue polling even if there's an error, but limit retries
-    }
-  }, [queryClient]);
-
-  // Start polling when currentGeneration changes
-  useEffect(() => {
-    if (currentGeneration && currentGeneration.status !== "completed" && 
-        currentGeneration.status !== "200" && currentGeneration.status !== "failed") {
-      
-      // Clear any existing interval
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-      
-      // Start polling every 3 seconds
-      pollingIntervalRef.current = setInterval(() => {
-        pollGenerationStatus(currentGeneration.taskId);
-      }, 3000);
-    }
-
-    // Cleanup on unmount
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
-  }, [currentGeneration?.taskId, currentGeneration?.status, pollGenerationStatus]);
-
-  const createGenerationMutation = useMutation({
+  const createGenerationMutation = (addGeneration: (taskId: string) => void) => useMutation({
     mutationFn: api.createGeneration,
     onSuccess: (data: { id: string; taskId: string }) => {
       toast({
@@ -115,13 +55,8 @@ export default function Home() {
         description: "Video generation started successfully!"
       });
       
-      // Set up status tracking
-      setCurrentGeneration({
-        taskId: data.taskId,
-        startTime: new Date(),
-        status: "pending"
-      });
-      setShowStatusDialog(true);
+      // Add to status manager
+      addGeneration(data.taskId);
       
       form.reset();
       setUploadedImage(null);
@@ -136,8 +71,8 @@ export default function Home() {
     }
   });
 
-  const onSubmit = (data: FormData) => {
-    createGenerationMutation.mutate({
+  const onSubmit = (data: FormData, mutation: ReturnType<typeof createGenerationMutation>) => {
+    mutation.mutate({
       promptText: data.promptText,
       imagePath: uploadedImage?.path,
       brand_persona: data.brand_persona
@@ -199,16 +134,6 @@ export default function Home() {
     window.open(url, '_blank');
   };
 
-  const handleCloseStatusDialog = () => {
-    setShowStatusDialog(false);
-    setCurrentGeneration(null);
-    
-    // Clear any remaining polling interval
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-  };
 
   // Helper function to construct proper media URLs
   const getMediaUrl = (path: string): string => {
@@ -232,7 +157,12 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <GenerationStatusManager>
+      {({ generations, addGeneration, dismissGeneration, toggleMinimize, retryGeneration }) => {
+        const mutation = createGenerationMutation(addGeneration);
+        
+        return (
+          <div className="min-h-screen bg-slate-50">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -290,7 +220,7 @@ export default function Home() {
                 </div>
 
                 {/* Form */}
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <form onSubmit={form.handleSubmit((data) => onSubmit(data, mutation))} className="space-y-6">
                   {/* Product Description */}
                   <div>
                     <Label htmlFor="promptText" className="text-sm font-medium text-slate-700">
@@ -392,9 +322,9 @@ export default function Home() {
                   <Button 
                     type="submit" 
                     className="w-full bg-primary hover:bg-primary/90"
-                    disabled={createGenerationMutation.isPending}
+                    disabled={mutation.isPending}
                   >
-                    {createGenerationMutation.isPending ? (
+                    {mutation.isPending ? (
                       <div className="flex items-center space-x-2">
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         <span>Generating...</span>
@@ -579,16 +509,16 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Status Dialog */}
-      {currentGeneration && (
-        <StatusDialog
-          isOpen={showStatusDialog}
-          onClose={handleCloseStatusDialog}
-          status={currentGeneration.status}
-          errorMessage={currentGeneration.errorMessage}
-          startTime={currentGeneration.startTime}
-        />
-      )}
+      {/* Floating Status Panel */}
+      <FloatingStatusPanel
+        generations={generations}
+        onDismiss={dismissGeneration}
+        onToggleMinimize={toggleMinimize}
+        onRetry={retryGeneration}
+      />
     </div>
+        );
+      }}
+    </GenerationStatusManager>
   );
 }

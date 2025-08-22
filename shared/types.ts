@@ -34,7 +34,25 @@ export const GenerationStatusResponseSchema = z.object({
   taskId: z.string(),
   status: z.enum(["pending", "processing", "completed", "failed", "200"]),
   errorMessage: z.string().nullable(),
+  errorDetails: z.any().nullable(),
+  errorType: z.enum(["webhook_failure", "network_error", "timeout", "validation_error", "unknown"]).nullable(),
+  retryCount: z.string().nullable(),
+  maxRetries: z.string().nullable(),
+  nextRetryAt: z.string().nullable(),
+  webhookResponseStatus: z.string().nullable(),
+  webhookResponseBody: z.string().nullable(),
+  lastAttemptAt: z.string().nullable(),
   createdAt: z.string()
+});
+
+export const RetryGenerationRequestSchema = z.object({
+  taskId: z.string()
+});
+
+export const RetryGenerationResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  nextRetryAt: z.string().optional()
 });
 
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;
@@ -42,3 +60,5 @@ export type GenerationCreateRequest = z.infer<typeof GenerationCreateRequestSche
 export type GenerationCallback = z.infer<typeof GenerationCallbackSchema>;
 export type N8nWebhookPayload = z.infer<typeof N8nWebhookPayloadSchema>;
 export type GenerationStatusResponse = z.infer<typeof GenerationStatusResponseSchema>;
+export type RetryGenerationRequest = z.infer<typeof RetryGenerationRequestSchema>;
+export type RetryGenerationResponse = z.infer<typeof RetryGenerationResponseSchema>;
