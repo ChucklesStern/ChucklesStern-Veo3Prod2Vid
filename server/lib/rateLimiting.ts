@@ -538,6 +538,7 @@ export function rateLimitMiddleware(
         success: false,
         timestamp: new Date().toISOString()
       });
+      return; // Don't continue to next() after sending response
     }
 
     const duration = Date.now() - startTime;
