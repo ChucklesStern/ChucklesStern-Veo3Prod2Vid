@@ -46,17 +46,23 @@ export function GenerationStatusCard({
   const [elapsedTime, setElapsedTime] = useState(0);
   const [finalElapsedTime, setFinalElapsedTime] = useState<number | null>(null);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
+  const [previousStatus, setPreviousStatus] = useState<string>(status);
 
   // Update elapsed time every second
   useEffect(() => {
     const isCompleted = status === "completed" || status === "200" || status === "failed";
     
     if (isCompleted) {
-      // Capture final elapsed time when status becomes final
+      // Capture final elapsed time when status becomes final and ensure it's displayed
       if (finalElapsedTime === null) {
         const finalTime = Math.floor((new Date().getTime() - startTime.getTime()) / 1000);
         setFinalElapsedTime(finalTime);
         setElapsedTime(finalTime);
+        
+        // Force one final update to ensure the timer shows the completion time
+        setTimeout(() => {
+          setElapsedTime(finalTime);
+        }, 100);
       }
       return;
     }
@@ -74,6 +80,21 @@ export function GenerationStatusCard({
 
     return () => clearInterval(interval);
   }, [status, startTime, finalElapsedTime]);
+
+  // Detect status changes and ensure completion is handled
+  useEffect(() => {
+    const isCompleted = status === "completed" || status === "200" || status === "failed";
+    const wasNotCompleted = previousStatus !== "completed" && previousStatus !== "200" && previousStatus !== "failed";
+    
+    // If status changed to completed and we haven't captured final time yet
+    if (isCompleted && wasNotCompleted && finalElapsedTime === null) {
+      const finalTime = Math.floor((new Date().getTime() - startTime.getTime()) / 1000);
+      setFinalElapsedTime(finalTime);
+      setElapsedTime(finalTime);
+    }
+    
+    setPreviousStatus(status);
+  }, [status, previousStatus, startTime, finalElapsedTime]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);

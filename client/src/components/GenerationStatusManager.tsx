@@ -325,6 +325,17 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
               duration,
               isSuccess,
             };
+            
+            // Immediately stop polling for this generation to prevent timer race conditions
+            const interval = pollingIntervals.get(generationId);
+            if (interval) {
+              clearInterval(interval);
+              setPollingIntervals(prev => {
+                const newMap = new Map(prev);
+                newMap.delete(generationId);
+                return newMap;
+              });
+            }
           }
           
           return { 
@@ -338,7 +349,7 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
             nextRetryAt: status.nextRetryAt,
             webhookResponseStatus: status.webhookResponseStatus,
             webhookResponseBody: status.webhookResponseBody,
-            endTime: isNowCompleted ? new Date() : gen.endTime,
+            endTime: isNowCompleted && !gen.endTime ? new Date() : gen.endTime,
             hasNotified: isNowCompleted || gen.hasNotified,
           };
         }
@@ -350,8 +361,9 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
         handleCompletedGeneration(completedGeneration);
       }
 
-      // Check if generation is complete and stop polling
-      if (status.status === "completed" || status.status === "200" || status.status === "failed") {
+      // Check if generation is complete and stop polling (only if not already stopped above)
+      if ((status.status === "completed" || status.status === "200" || status.status === "failed") && 
+          pollingIntervals.has(generationId)) {
         const interval = pollingIntervals.get(generationId);
         if (interval) {
           clearInterval(interval);
@@ -362,7 +374,7 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
           });
         }
         
-        // Refresh the completed videos list
+        // Refresh the completed videos list to ensure UI consistency
         queryClient.invalidateQueries({ queryKey: ['/api/generations'] });
       }
     } catch (error) {

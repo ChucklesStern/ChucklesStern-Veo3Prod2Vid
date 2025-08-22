@@ -14,6 +14,12 @@ import {
   RetryGenerationResponseSchema
 } from "@shared/types";
 import { z } from "zod";
+import { logger } from "./lib/logger";
+import { metricsCollector } from "./lib/metrics";
+import { alertingSystem } from "./lib/alerting";
+import { AppError, WebhookError, handleDatabaseError, handleWebhookError, asyncHandler } from "./lib/errorHandler";
+import { retryManager, withRetry } from "./lib/retryManager";
+import { rawBodyMiddleware, webhookSecurityMiddleware } from "./lib/webhookSecurity";
 
 // Webhook timeout configuration (in milliseconds)
 const WEBHOOK_TIMEOUT = 30000; // 30 seconds
@@ -63,39 +69,51 @@ async function sendWebhookWithTimeout(url: string, payload: any, timeout: number
   }
 }
 
-// Enhanced webhook handler with error capture and retry logic
-async function handleWebhookCall(taskId: string, webhookPayload: any): Promise<{
+// Enhanced webhook handler with retry manager and error capture
+async function handleWebhookCall(taskId: string, webhookPayload: any, correlationId: string): Promise<{
   success: boolean;
-  shouldRetry: boolean;
   errorDetails?: any;
+  attempts: number;
+  totalDuration: number;
 }> {
   const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL;
   if (!n8nWebhookUrl) {
     throw new Error("N8N_WEBHOOK_URL not configured");
   }
 
-  let webhookResponse: Response;
-  let responseBody: string = "";
-  let errorType: "webhook_failure" | "network_error" | "timeout" | "validation_error" | "unknown" = "unknown";
-  
-  try {
+  // Use retry manager for webhook calls
+  const webhookOperation = async () => {
+    logger.debug('Executing webhook call', {
+      correlationId,
+      taskId,
+      url: n8nWebhookUrl,
+      payloadSize: JSON.stringify(webhookPayload).length,
+      type: 'webhook_call_attempt'
+    });
+
     // Record attempt time
     await storage.updateVideoGeneration(taskId, { 
       lastAttemptAt: new Date() 
     });
 
-    webhookResponse = await sendWebhookWithTimeout(n8nWebhookUrl, webhookPayload);
+    const webhookResponse = await sendWebhookWithTimeout(n8nWebhookUrl, webhookPayload);
     
     // Always capture response body for analysis
+    let responseBody: string = "";
     try {
       responseBody = await webhookResponse.text();
     } catch (bodyError) {
-      console.warn('Failed to read response body:', bodyError);
+      logger.warn('Failed to read webhook response body', {
+        correlationId,
+        taskId,
+        error: bodyError,
+        type: 'webhook_response_body_error'
+      });
       responseBody = "Failed to read response body";
     }
 
     if (!webhookResponse.ok) {
-      errorType = determineErrorType({ status: webhookResponse.status });
+      const errorType = determineErrorType({ status: webhookResponse.status });
       
       const errorDetails = {
         status: webhookResponse.status,
@@ -105,6 +123,7 @@ async function handleWebhookCall(taskId: string, webhookPayload: any): Promise<{
         timestamp: new Date().toISOString()
       };
 
+      // Update database with error details
       await storage.updateVideoGeneration(taskId, {
         status: "failed",
         errorMessage: `Webhook failed with status ${webhookResponse.status}: ${webhookResponse.statusText}`,
@@ -114,27 +133,67 @@ async function handleWebhookCall(taskId: string, webhookPayload: any): Promise<{
         webhookResponseBody: responseBody
       });
 
-      // Determine if we should retry based on error type and status
-      const shouldRetry = errorType === "network_error" || 
-                         errorType === "timeout" || 
-                         (webhookResponse.status >= 500 && webhookResponse.status < 600);
+      // Create error for retry manager
+      const error = new Error(`Webhook failed with status ${webhookResponse.status}: ${webhookResponse.statusText}`);
+      (error as any).status = webhookResponse.status;
+      (error as any).statusCode = webhookResponse.status;
+      throw error;
+    }
+
+    // Success case - return response for logging
+    return {
+      status: webhookResponse.status,
+      body: responseBody,
+      headers: Object.fromEntries(webhookResponse.headers.entries())
+    };
+  };
+
+  try {
+    const result = await retryManager.retryWebhook(
+      webhookOperation,
+      n8nWebhookUrl,
+      correlationId
+    );
+
+    if (result.success) {
+      logger.info('Webhook call succeeded', {
+        correlationId,
+        taskId,
+        attempts: result.finalAttempt,
+        totalDuration: result.totalDuration,
+        type: 'webhook_call_success'
+      });
+
+      return {
+        success: true,
+        attempts: result.finalAttempt,
+        totalDuration: result.totalDuration
+      };
+    } else {
+      const errorDetails = {
+        error: result.error?.message,
+        attempts: result.attempts,
+        totalDuration: result.totalDuration,
+        finalAttempt: result.finalAttempt,
+        circuitBreakerTripped: result.circuitBreakerTripped
+      };
+
+      logger.error('Webhook call failed after all retries', {
+        correlationId,
+        taskId,
+        ...errorDetails,
+        type: 'webhook_call_failed'
+      });
 
       return {
         success: false,
-        shouldRetry,
-        errorDetails
+        errorDetails,
+        attempts: result.finalAttempt,
+        totalDuration: result.totalDuration
       };
     }
 
-    // Success case
-    return {
-      success: true,
-      shouldRetry: false
-    };
-
   } catch (error: any) {
-    errorType = determineErrorType(error);
-    
     const errorDetails = {
       message: error.message,
       type: error.name,
@@ -143,22 +202,18 @@ async function handleWebhookCall(taskId: string, webhookPayload: any): Promise<{
       timestamp: new Date().toISOString()
     };
 
-    await storage.updateVideoGeneration(taskId, {
-      status: "failed",
-      errorMessage: `Webhook call failed: ${error.message}`,
-      errorDetails,
-      errorType,
-      webhookResponseStatus: null,
-      webhookResponseBody: responseBody || null
+    logger.error('Webhook call processing error', {
+      correlationId,
+      taskId,
+      error: error.message,
+      type: 'webhook_call_error'
     });
-
-    // Network errors and timeouts are retryable
-    const shouldRetry = errorType === "network_error" || errorType === "timeout";
 
     return {
       success: false,
-      shouldRetry,
-      errorDetails
+      errorDetails,
+      attempts: 1,
+      totalDuration: 0
     };
   }
 }
@@ -198,9 +253,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
-  // Health check
-  app.get("/api/health", (req, res) => {
-    res.json({ ok: true });
+  // Enhanced health check with full system status
+  app.get("/api/health", async (req, res) => {
+    const { apiMonitor } = await import("./lib/monitoring");
+    const { alertingSystem } = await import("./lib/alerting");
+    
+    const healthStatus = apiMonitor.getHealthStatus();
+    const alertingStatus = alertingSystem.getStatus();
+    
+    res.json({
+      status: healthStatus.status,
+      timestamp: healthStatus.timestamp,
+      uptime: healthStatus.uptime,
+      version: healthStatus.version,
+      environment: healthStatus.environment,
+      dependencies: healthStatus.dependencies,
+      metrics: {
+        requests: {
+          total: healthStatus.metrics.totalRequests,
+          successful: healthStatus.metrics.successfulRequests,
+          failed: healthStatus.metrics.failedRequests,
+          averageResponseTime: Math.round(healthStatus.metrics.averageResponseTime)
+        },
+        alerts: {
+          active: alertingStatus.activeAlerts,
+          recent: alertingStatus.recentAlerts
+        }
+      },
+      correlationId: (req as any).correlationId
+    });
+  });
+
+  // Detailed metrics endpoint
+  app.get("/api/monitoring/metrics", async (req, res) => {
+    const { metricsCollector } = await import("./lib/metrics");
+    const { apiMonitor } = await import("./lib/monitoring");
+    
+    const metrics = metricsCollector.getMetricsSummary();
+    const apiMetrics = apiMonitor.getMetrics();
+    
+    res.json({
+      timestamp: new Date().toISOString(),
+      api: apiMetrics,
+      detailed: metrics,
+      correlationId: (req as any).correlationId
+    });
+  });
+
+  // Alerts endpoint
+  app.get("/api/monitoring/alerts", async (req, res) => {
+    const { alertingSystem } = await import("./lib/alerting");
+    
+    const activeAlerts = alertingSystem.getActiveAlerts();
+    const alertHistory = alertingSystem.getAlertHistory(100);
+    const alertRules = alertingSystem.getAlertRules();
+    
+    res.json({
+      active: activeAlerts,
+      history: alertHistory,
+      rules: alertRules,
+      status: alertingSystem.getStatus(),
+      correlationId: (req as any).correlationId
+    });
+  });
+
+  // API Manager status endpoint
+  app.get("/api/monitoring/api-manager", async (req, res) => {
+    const { rateLimitManager } = await import("./lib/rateLimiting");
+    const { validationManager } = await import("./lib/validation");
+    const { idempotencyManager } = await import("./lib/idempotency");
+    const { retryManager } = await import("./lib/retryManager");
+    const { webhookSecurity } = await import("./lib/webhookSecurity");
+    
+    res.json({
+      rateLimiting: rateLimitManager.getStats(),
+      validation: validationManager.getStats(),
+      idempotency: idempotencyManager.getStats(),
+      retry: retryManager.getStats(),
+      webhookSecurity: webhookSecurity.getSecurityStatus(),
+      correlationId: (req as any).correlationId
+    });
+  });
+
+  // Rate limiting management endpoints
+  app.get("/api/monitoring/rate-limits", async (req, res) => {
+    const { rateLimitManager } = await import("./lib/rateLimiting");
+    
+    res.json({
+      rules: rateLimitManager.getRules(),
+      stats: rateLimitManager.getStats(),
+      correlationId: (req as any).correlationId
+    });
+  });
+
+  app.post("/api/monitoring/rate-limits/reset/:clientId", async (req, res) => {
+    const { rateLimitManager } = await import("./lib/rateLimiting");
+    const { clientId } = req.params;
+    
+    const reset = rateLimitManager.resetClient(clientId);
+    
+    res.json({
+      success: reset,
+      message: reset ? `Rate limits reset for client ${clientId}` : `Client ${clientId} not found`,
+      correlationId: (req as any).correlationId
+    });
+  });
+
+  // Circuit breaker management
+  app.post("/api/monitoring/circuit-breaker/reset/:operationId", async (req, res) => {
+    const { retryManager } = await import("./lib/retryManager");
+    const { operationId } = req.params;
+    
+    const reset = retryManager.resetCircuitBreaker(operationId);
+    
+    res.json({
+      success: reset,
+      message: reset ? `Circuit breaker reset for ${operationId}` : `Operation ${operationId} not found`,
+      correlationId: (req as any).correlationId
+    });
   });
 
   // Public object serving endpoint
@@ -369,26 +539,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         brand_persona: validatedBody.brand_persona || null
       });
 
-      // Use enhanced webhook handler
-      const webhookResult = await handleWebhookCall(taskId, webhookPayload);
+      // Use enhanced webhook handler with retry manager
+      const webhookResult = await handleWebhookCall(taskId, webhookPayload, (req as any).correlationId);
       
       if (!webhookResult.success) {
-        if (webhookResult.shouldRetry) {
-          // Set up for retry with exponential backoff
-          const retryCount = 0;
-          const nextRetryAt = new Date(Date.now() + calculateRetryDelay(retryCount));
-          
-          await storage.updateVideoGeneration(taskId, {
-            retryCount: retryCount.toString(),
-            maxRetries: MAX_RETRIES.toString(),
-            nextRetryAt
-          });
-          
-          throw new Error(`Webhook failed but will be retried. Next retry at: ${nextRetryAt.toISOString()}`);
-        } else {
-          throw new Error(`Webhook failed permanently: ${webhookResult.errorDetails?.message || 'Unknown error'}`);
-        }
+        logger.error('Webhook call failed', {
+          correlationId: (req as any).correlationId,
+          taskId,
+          attempts: webhookResult.attempts,
+          totalDuration: webhookResult.totalDuration,
+          errorDetails: webhookResult.errorDetails,
+          type: 'generation_webhook_failed'
+        });
+
+        throw new AppError(
+          `Webhook failed after ${webhookResult.attempts} attempts`,
+          500,
+          'WEBHOOK_CALL_FAILED',
+          webhookResult.errorDetails,
+          (req as any).correlationId
+        );
       }
+
+      logger.info('Webhook call completed successfully', {
+        correlationId: (req as any).correlationId,
+        taskId,
+        attempts: webhookResult.attempts,
+        totalDuration: webhookResult.totalDuration,
+        type: 'generation_webhook_success'
+      });
 
       // Update status to processing on success
       await storage.updateVideoGeneration(taskId, { status: "processing" });
@@ -403,31 +582,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // n8n callback endpoint
-  app.post("/api/generations/callback", async (req, res) => {
+  // Enhanced n8n callback endpoint with security and observability
+  app.post("/api/generations/callback", 
+    rawBodyMiddleware,
+    webhookSecurityMiddleware,
+    asyncHandler(async (req: any, res) => {
+    const timer = metricsCollector.startTimer(`webhook_callback_${req.correlationId}`);
+    
+    logger.info('Webhook callback received', {
+      correlationId: req.correlationId,
+      bodySize: JSON.stringify(req.body).length,
+      userAgent: req.headers['user-agent'],
+      ip: req.ip,
+      type: 'webhook_callback_start'
+    });
+
     try {
       const validatedBody = GenerationCallbackSchema.parse(req.body);
       
+      logger.info('Webhook callback validated', {
+        correlationId: req.correlationId,
+        taskId: validatedBody.taskId,
+        status: validatedBody.status,
+        hasImage: !!validatedBody.imageGenerationPath,
+        hasVideo: !!validatedBody.videoPath,
+        hasError: !!validatedBody.errorMessage,
+        type: 'webhook_callback_validated'
+      });
+
+      const dbTimer = metricsCollector.startTimer(`db_update_${req.correlationId}`);
       const updated = await storage.updateVideoGeneration(validatedBody.taskId, {
         status: validatedBody.status,
         imageGenerationPath: validatedBody.imageGenerationPath || null,
         videoPath: validatedBody.videoPath || null,
         errorMessage: validatedBody.errorMessage || null
       });
+      const dbDuration = dbTimer();
+
+      metricsCollector.recordDatabaseQuery(
+        'updateVideoGeneration', 
+        dbDuration, 
+        !!updated, 
+        req.correlationId
+      );
 
       if (!updated) {
-        return res.status(404).json({ error: "Generation not found" });
+        logger.warn('Generation not found for callback', {
+          correlationId: req.correlationId,
+          taskId: validatedBody.taskId,
+          type: 'webhook_callback_not_found'
+        });
+        throw new AppError(`Generation not found: ${validatedBody.taskId}`, 404, 'GENERATION_NOT_FOUND', {
+          taskId: validatedBody.taskId
+        }, req.correlationId);
       }
 
-      res.json({ success: true });
+      const duration = timer();
+      
+      logger.info('Webhook callback processed successfully', {
+        correlationId: req.correlationId,
+        taskId: validatedBody.taskId,
+        status: validatedBody.status,
+        duration,
+        dbDuration,
+        type: 'webhook_callback_success'
+      });
+
+      // Record webhook success metrics
+      metricsCollector.recordWebhookCall('callback', duration, 200, false, req.correlationId);
+
+      res.json({ 
+        success: true, 
+        correlationId: req.correlationId,
+        processedAt: new Date().toISOString()
+      });
+
     } catch (error) {
-      console.error('Callback error:', error);
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Validation failed", details: error.errors });
+      const duration = timer();
+      
+      if (error instanceof AppError) {
+        throw error; // Re-throw app errors for proper handling
       }
-      res.status(500).json({ error: "Callback processing failed" });
+
+      logger.error('Webhook callback processing error', {
+        correlationId: req.correlationId,
+        error: error instanceof Error ? error.message : String(error),
+        duration,
+        type: 'webhook_callback_error'
+      });
+
+      // Record webhook failure metrics
+      metricsCollector.recordWebhookCall('callback', duration, 500, false, req.correlationId);
+      alertingSystem.recordError('/api/generations/callback');
+
+      throw new AppError(
+        'Callback processing failed',
+        500,
+        'CALLBACK_PROCESSING_ERROR',
+        { originalError: error instanceof Error ? error.message : String(error) },
+        req.correlationId
+      );
     }
-  });
+  }));
 
   // Get completed generations - requires authentication
   app.get("/api/generations", isAuthenticated, async (req, res) => {
@@ -549,12 +805,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Attempt webhook call
-      const webhookResult = await handleWebhookCall(generation.taskId, webhookPayload);
+      const webhookResult = await handleWebhookCall(generation.taskId, webhookPayload, (req as any).correlationId);
       
       if (!webhookResult.success) {
         const newRetryCount = currentRetryCount + 1;
         
-        if (webhookResult.shouldRetry && newRetryCount < maxRetries) {
+        if (!webhookResult.success && newRetryCount < maxRetries) {
           // Schedule next retry
           const nextRetryAt = new Date(Date.now() + calculateRetryDelay(newRetryCount));
           
