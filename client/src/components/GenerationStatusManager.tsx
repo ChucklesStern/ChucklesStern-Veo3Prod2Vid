@@ -299,7 +299,7 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
               isContentPolicy: true,
             };
             
-            // Immediately stop polling for this generation
+            // Immediately stop polling for this generation - this prevents timer race conditions
             const interval = pollingIntervals.get(generationId);
             if (interval) {
               clearInterval(interval);

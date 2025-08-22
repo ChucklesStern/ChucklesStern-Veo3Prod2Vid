@@ -44,12 +44,26 @@ export function GenerationStatusCard({
   className = ""
 }: GenerationStatusCardProps) {
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [finalElapsedTime, setFinalElapsedTime] = useState<number | null>(null);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
 
   // Update elapsed time every second
   useEffect(() => {
-    if (status === "completed" || status === "200" || status === "failed") {
+    const isCompleted = status === "completed" || status === "200" || status === "failed";
+    
+    if (isCompleted) {
+      // Capture final elapsed time when status becomes final
+      if (finalElapsedTime === null) {
+        const finalTime = Math.floor((new Date().getTime() - startTime.getTime()) / 1000);
+        setFinalElapsedTime(finalTime);
+        setElapsedTime(finalTime);
+      }
       return;
+    }
+
+    // Reset final time if status changes back to pending/processing (e.g., retry)
+    if (finalElapsedTime !== null) {
+      setFinalElapsedTime(null);
     }
 
     const interval = setInterval(() => {
@@ -59,7 +73,7 @@ export function GenerationStatusCard({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [status, startTime]);
+  }, [status, startTime, finalElapsedTime]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -68,8 +82,10 @@ export function GenerationStatusCard({
   };
 
   const formatGenerationTime = (startTime: Date): string => {
-    const now = new Date();
-    const totalSeconds = Math.floor((now.getTime() - startTime.getTime()) / 1000);
+    // Use final elapsed time if available, otherwise calculate from current time
+    const totalSeconds = finalElapsedTime !== null 
+      ? finalElapsedTime 
+      : Math.floor((new Date().getTime() - startTime.getTime()) / 1000);
     
     if (totalSeconds < 60) {
       return `${totalSeconds} second${totalSeconds !== 1 ? 's' : ''}`;
@@ -158,8 +174,10 @@ export function GenerationStatusCard({
       case "failed":
         // Check for content policy failure (error message "400")
         if (errorMessage === "400") {
-          const minutes = Math.floor(elapsedTime / 60);
-          const seconds = elapsedTime % 60;
+          // Use final elapsed time to ensure consistent display
+          const displayTime = finalElapsedTime !== null ? finalElapsedTime : elapsedTime;
+          const minutes = Math.floor(displayTime / 60);
+          const seconds = displayTime % 60;
           const timeStr = minutes > 0 ? `${minutes}:${seconds.toString().padStart(2, '0')}` : `${seconds}s`;
           
           return {
@@ -213,7 +231,7 @@ export function GenerationStatusCard({
               </span>
               {statusContent.showTimer && (
                 <span className="font-mono text-sm">
-                  {formatTime(elapsedTime)}
+                  {formatTime(finalElapsedTime !== null ? finalElapsedTime : elapsedTime)}
                 </span>
               )}
             </div>
@@ -321,7 +339,7 @@ export function GenerationStatusCard({
               <div className="inline-flex items-center space-x-2 bg-white/70 rounded-lg px-3 py-1">
                 <Clock className="h-3 w-3 text-slate-500" />
                 <span className="font-mono text-sm font-medium text-slate-700">
-                  {formatTime(elapsedTime)}
+                  {formatTime(finalElapsedTime !== null ? finalElapsedTime : elapsedTime)}
                 </span>
               </div>
             </div>
