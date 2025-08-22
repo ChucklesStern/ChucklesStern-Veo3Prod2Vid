@@ -156,6 +156,23 @@ export function GenerationStatusCard({
           textColor: "text-green-700",
         };
       case "failed":
+        // Check for content policy failure (error message "400")
+        if (errorMessage === "400") {
+          const minutes = Math.floor(elapsedTime / 60);
+          const seconds = elapsedTime % 60;
+          const timeStr = minutes > 0 ? `${minutes}:${seconds.toString().padStart(2, '0')}` : `${seconds}s`;
+          
+          return {
+            icon: <AlertTriangle className="h-5 w-5 text-amber-500" />,
+            title: "Content Policy Violation",
+            message: `Job has failed at ${timeStr} likely due to Google's content policy. Try your request again.`,
+            showTimer: false,
+            bgColor: "bg-amber-50",
+            borderColor: "border-amber-200",
+            textColor: "text-amber-700",
+          };
+        }
+        
         const retryInfo = canRetry() ? ` (${retryCount || 0}/${maxRetries || 3} attempts)` : " (Max retries exceeded)";
         const errorTypeDisplay = errorType ? getErrorTypeDisplayName(errorType) : "Error";
         
@@ -201,7 +218,7 @@ export function GenerationStatusCard({
               )}
             </div>
             <div className="flex items-center space-x-1">
-              {status === "failed" && canRetry() && (
+              {status === "failed" && canRetry() && errorMessage !== "400" && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -250,7 +267,7 @@ export function GenerationStatusCard({
               </span>
             </div>
             <div className="flex items-center space-x-1">
-              {status === "failed" && canRetry() && (
+              {status === "failed" && canRetry() && errorMessage !== "400" && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -311,7 +328,7 @@ export function GenerationStatusCard({
           )}
 
           {/* Retry information for failed generations */}
-          {status === "failed" && (
+          {status === "failed" && errorMessage !== "400" && (
             <div className="space-y-2">
               {/* Retry controls */}
               <div className="flex items-center justify-between">

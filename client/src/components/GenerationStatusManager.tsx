@@ -35,6 +35,7 @@ interface CompletedGeneration {
   endTime: Date;
   duration: number; // in seconds
   isSuccess: boolean;
+  isContentPolicy?: boolean;
 }
 
 interface GenerationStatusManagerProps {
@@ -152,23 +153,42 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
     // Show toast notification
     if (preferences.showToastNotifications) {
       const isSuccess = failureCount === 0;
-      const title = completedGenerations.length === 1 
-        ? (isSuccess ? "Video Generated!" : "Generation Failed")
-        : `${completedGenerations.length} Videos ${isSuccess ? "Completed" : "Finished"}`;
+      const contentPolicyCount = completedGenerations.filter(g => g.isContentPolicy).length;
       
+      let title: string;
       let description: string;
+      
       if (completedGenerations.length === 1) {
         const gen = completedGenerations[0];
-        description = isSuccess 
-          ? `Video generation completed in ${gen.duration}s`
-          : "Generation failed. Check the status panel for details.";
-      } else {
-        if (failureCount === 0) {
-          description = `All ${successCount} video generations completed successfully`;
-        } else if (successCount === 0) {
-          description = `All ${failureCount} video generations failed`;
+        if (gen.isContentPolicy) {
+          title = "Content Policy Violation";
+          const minutes = Math.floor(gen.duration / 60);
+          const seconds = gen.duration % 60;
+          const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+          description = `Job failed at ${timeStr} likely due to Google's content policy. Try your request again.`;
         } else {
-          description = `${successCount} succeeded, ${failureCount} failed`;
+          title = isSuccess ? "Video Generated!" : "Generation Failed";
+          description = isSuccess 
+            ? `Video generation completed in ${gen.duration}s`
+            : "Generation failed. Check the status panel for details.";
+        }
+      } else {
+        title = `${completedGenerations.length} Videos ${isSuccess ? "Completed" : "Finished"}`;
+        
+        if (contentPolicyCount > 0) {
+          if (contentPolicyCount === completedGenerations.length) {
+            description = `All ${contentPolicyCount} generations failed due to content policy violations`;
+          } else {
+            description = `${successCount} succeeded, ${failureCount} failed (${contentPolicyCount} content policy violations)`;
+          }
+        } else {
+          if (failureCount === 0) {
+            description = `All ${successCount} video generations completed successfully`;
+          } else if (successCount === 0) {
+            description = `All ${failureCount} video generations failed`;
+          } else {
+            description = `${successCount} succeeded, ${failureCount} failed`;
+          }
         }
       }
 
@@ -199,23 +219,42 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
     // Show browser notification
     if (preferences.showBrowserNotifications && permission === "granted") {
       const isSuccess = failureCount === 0;
-      const title = completedGenerations.length === 1 
-        ? (isSuccess ? "Video Generated!" : "Generation Failed")
-        : `${completedGenerations.length} Videos ${isSuccess ? "Completed" : "Finished"}`;
+      const contentPolicyCount = completedGenerations.filter(g => g.isContentPolicy).length;
       
+      let title: string;
       let body: string;
+      
       if (completedGenerations.length === 1) {
         const gen = completedGenerations[0];
-        body = isSuccess 
-          ? `Your video generation completed successfully in ${gen.duration}s`
-          : "Your video generation failed. Click to view details.";
-      } else {
-        if (failureCount === 0) {
-          body = `All ${successCount} video generations completed successfully`;
-        } else if (successCount === 0) {
-          body = `All ${failureCount} video generations failed`;
+        if (gen.isContentPolicy) {
+          title = "Content Policy Violation";
+          const minutes = Math.floor(gen.duration / 60);
+          const seconds = gen.duration % 60;
+          const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+          body = `Job failed at ${timeStr} likely due to Google's content policy`;
         } else {
-          body = `${successCount} succeeded, ${failureCount} failed`;
+          title = isSuccess ? "Video Generated!" : "Generation Failed";
+          body = isSuccess 
+            ? `Your video generation completed successfully in ${gen.duration}s`
+            : "Your video generation failed. Click to view details.";
+        }
+      } else {
+        title = `${completedGenerations.length} Videos ${isSuccess ? "Completed" : "Finished"}`;
+        
+        if (contentPolicyCount > 0) {
+          if (contentPolicyCount === completedGenerations.length) {
+            body = `All ${contentPolicyCount} generations failed due to content policy violations`;
+          } else {
+            body = `${successCount} succeeded, ${failureCount} failed (${contentPolicyCount} content policy)`;
+          }
+        } else {
+          if (failureCount === 0) {
+            body = `All ${successCount} video generations completed successfully`;
+          } else if (successCount === 0) {
+            body = `All ${failureCount} video generations failed`;
+          } else {
+            body = `${successCount} succeeded, ${failureCount} failed`;
+          }
         }
       }
 
@@ -241,8 +280,38 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
           const wasCompleted = gen.status === "completed" || gen.status === "200" || gen.status === "failed";
           const isNowCompleted = status.status === "completed" || status.status === "200" || status.status === "failed";
           
+          // Check for content policy failure (error message "400")
+          const isContentPolicyFailure = status.errorMessage === "400";
+          
+          // If content policy failure detected, force completion and stop timer
+          if (isContentPolicyFailure && !wasCompleted) {
+            shouldNotify = true;
+            const endTime = new Date();
+            const duration = Math.round((endTime.getTime() - gen.startTime.getTime()) / 1000);
+            
+            completedGeneration = {
+              id: gen.id,
+              taskId: gen.taskId,
+              status: "failed" as const,
+              endTime,
+              duration,
+              isSuccess: false,
+              isContentPolicy: true,
+            };
+            
+            // Immediately stop polling for this generation
+            const interval = pollingIntervals.get(generationId);
+            if (interval) {
+              clearInterval(interval);
+              setPollingIntervals(prev => {
+                const newMap = new Map(prev);
+                newMap.delete(generationId);
+                return newMap;
+              });
+            }
+          }
           // Check if this is a new completion that we haven't notified about
-          if (!wasCompleted && isNowCompleted && !gen.hasNotified) {
+          else if (!wasCompleted && isNowCompleted && !gen.hasNotified) {
             shouldNotify = true;
             const endTime = new Date();
             const duration = Math.round((endTime.getTime() - gen.startTime.getTime()) / 1000);
