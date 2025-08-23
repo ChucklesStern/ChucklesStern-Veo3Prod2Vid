@@ -7,7 +7,7 @@ import {
   type InsertUser 
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, or } from "drizzle-orm";
+import { eq, desc, or, isNull, and } from "drizzle-orm";
 
 export interface IStorage {
   createVideoGeneration(generation: InsertVideoGeneration): Promise<VideoGeneration>;
@@ -59,7 +59,12 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(videoGenerations)
-      .where(or(eq(videoGenerations.status, "completed"), eq(videoGenerations.status, "200")))
+      .where(
+        and(
+          or(eq(videoGenerations.status, "completed"), eq(videoGenerations.status, "200")),
+          isNull(videoGenerations.errorMessage)
+        )
+      )
       .orderBy(desc(videoGenerations.createdAt))
       .limit(limit);
   }

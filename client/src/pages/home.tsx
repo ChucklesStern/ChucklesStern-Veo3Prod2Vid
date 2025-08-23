@@ -398,7 +398,12 @@ export default function Home() {
                 {/* Video Results List */}
                 {!isLoading && completedVideos.length > 0 && (
                   <div className="space-y-6">
-                    {completedVideos.map((video: VideoGeneration) => (
+                    {completedVideos
+                      .filter((video: VideoGeneration) => 
+                        // Additional safety check: only show videos with no error message and valid video path
+                        !video.errorMessage && video.videoPath
+                      )
+                      .map((video: VideoGeneration) => (
                       <div key={video.id} className="border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow bg-white">
                         
                         {/* Generated Image Section - Hero Display */}

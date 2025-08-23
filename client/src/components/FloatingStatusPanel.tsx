@@ -53,14 +53,24 @@ export function FloatingStatusPanel({
       </div>
       
       {/* Backdrop for completed generations indicator */}
-      {generations.some(g => g.status === "completed" || g.status === "200") && (
-        <div className="text-center pointer-events-auto">
-          <div className="inline-flex items-center space-x-2 bg-green-100 text-green-700 text-xs px-3 py-1 rounded-full border border-green-200">
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-            <span>
-              {generations.filter(g => g.status === "completed" || g.status === "200").length} completed
-            </span>
-          </div>
+      {generations.some(g => g.status === "completed" || g.status === "200" || g.status === "failed") && (
+        <div className="text-center pointer-events-auto space-y-1">
+          {generations.some(g => g.status === "completed" || g.status === "200") && (
+            <div className="inline-flex items-center space-x-2 bg-green-100 text-green-700 text-xs px-3 py-1 rounded-full border border-green-200">
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+              <span>
+                {generations.filter(g => g.status === "completed" || g.status === "200").length} completed
+              </span>
+            </div>
+          )}
+          {generations.some(g => g.status === "failed") && (
+            <div className="inline-flex items-center space-x-2 bg-red-100 text-red-700 text-xs px-3 py-1 rounded-full border border-red-200">
+              <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+              <span>
+                {generations.filter(g => g.status === "failed").length} failed
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

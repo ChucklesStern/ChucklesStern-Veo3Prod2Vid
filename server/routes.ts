@@ -692,8 +692,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (onlyCompleted) {
         const generations = await storage.getCompletedVideoGenerations(50);
-        // Only return generations with video_path
-        const completedWithVideos = generations.filter(g => g.videoPath);
+        // Only return generations with video_path AND no error message (double safety check)
+        const completedWithVideos = generations.filter(g => 
+          g.videoPath && 
+          !g.errorMessage
+        );
         res.json(completedWithVideos);
       } else {
         // For now, only support completed filter as per requirements

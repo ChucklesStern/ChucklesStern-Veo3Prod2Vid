@@ -278,7 +278,7 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
       setGenerations(prev => prev.map(gen => {
         if (gen.id === generationId) {
           const wasCompleted = gen.status === "completed" || gen.status === "200" || gen.status === "failed";
-          const isNowCompleted = status.status === "completed" || status.status === "200" || status.status === "failed";
+          const isNowCompleted = status.status === "completed" || status.status === "200" || status.status === "failed" || status.errorMessage;
           
           // Check for content policy failure (error message "400")
           const isContentPolicyFailure = status.errorMessage === "400";
@@ -315,12 +315,13 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
             shouldNotify = true;
             const endTime = new Date();
             const duration = Math.round((endTime.getTime() - gen.startTime.getTime()) / 1000);
-            const isSuccess = status.status === "completed" || status.status === "200";
+            // Job is successful only if no error message AND status is completed/200
+            const isSuccess = (status.status === "completed" || status.status === "200") && !status.errorMessage;
             
             completedGeneration = {
               id: gen.id,
               taskId: gen.taskId,
-              status: status.status as "completed" | "200" | "failed",
+              status: status.errorMessage ? "failed" : (status.status as "completed" | "200" | "failed"),
               endTime,
               duration,
               isSuccess,
@@ -338,9 +339,9 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
             }
           }
           
-          return { 
+          const updatedGen: GenerationStatus = { 
             ...gen, 
-            status: status.status, 
+            status: (status.errorMessage ? "failed" : status.status) as GenerationStatusResponse["status"], // Override status to "failed" if error message exists
             errorMessage: status.errorMessage,
             errorDetails: status.errorDetails,
             errorType: status.errorType,
@@ -350,8 +351,9 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
             webhookResponseStatus: status.webhookResponseStatus,
             webhookResponseBody: status.webhookResponseBody,
             endTime: isNowCompleted && !gen.endTime ? new Date() : gen.endTime,
-            hasNotified: isNowCompleted || gen.hasNotified,
+            hasNotified: Boolean(isNowCompleted) || gen.hasNotified,
           };
+          return updatedGen;
         }
         return gen;
       }));
@@ -362,7 +364,7 @@ export function GenerationStatusManager({ children }: GenerationStatusManagerPro
       }
 
       // Check if generation is complete and stop polling (only if not already stopped above)
-      if ((status.status === "completed" || status.status === "200" || status.status === "failed") && 
+      if ((status.status === "completed" || status.status === "200" || status.status === "failed" || status.errorMessage) && 
           pollingIntervals.has(generationId)) {
         const interval = pollingIntervals.get(generationId);
         if (interval) {
