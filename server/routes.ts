@@ -522,12 +522,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imageUrl = `${protocol}://${host}${validatedBody.imagePath}`;
       }
 
-      // Get brand persona image URLs - construct dynamically using current host
-      const brandPersonaImage1Path = process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png";
-      const brandPersonaImage2Path = process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png";
-      
-      const brandPersonaImage1Url = `${protocol}://${host}${brandPersonaImage1Path}`;
-      const brandPersonaImage2Url = `${protocol}://${host}${brandPersonaImage2Path}`;
+      // Get brand persona image URLs - use production URLs if available, otherwise construct from paths
+      const brandPersonaImage1Url = process.env.BASE_MODEL_IMAGE_1_URL || 
+        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png")}`;
+      const brandPersonaImage2Url = process.env.BASE_MODEL_IMAGE_2_URL || 
+        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png")}`;
 
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId,
