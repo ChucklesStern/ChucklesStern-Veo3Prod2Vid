@@ -52,19 +52,68 @@ function determineErrorType(error: any): "webhook_failure" | "network_error" | "
 async function sendWebhookWithTimeout(url: string, payload: any, timeout: number = WEBHOOK_TIMEOUT) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
-  
+
+  const requestHeaders = { 'Content-Type': 'application/json' };
+  const requestBody = JSON.stringify(payload);
+
+  // Verbose logging for N8N POST request
+  console.log('=== N8N WEBHOOK POST REQUEST ===');
+  console.log('URL:', url);
+  console.log('Method: POST');
+  console.log('Headers:', JSON.stringify(requestHeaders, null, 2));
+  console.log('Request Body:', requestBody);
+  console.log('Timeout:', timeout, 'ms');
+  console.log('Timestamp:', new Date().toISOString());
+  console.log('=====================================');
+
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      headers: requestHeaders,
+      body: requestBody,
       signal: controller.signal
     });
-    
+
+    // Verbose logging for N8N POST response
+    console.log('=== N8N WEBHOOK POST RESPONSE ===');
+    console.log('Status:', response.status);
+    console.log('Status Text:', response.statusText);
+    console.log('Response Headers:');
+    response.headers.forEach((value, key) => {
+      console.log(`  ${key}: ${value}`);
+    });
+
+    // Clone response to read body without consuming it
+    const responseClone = response.clone();
+    try {
+      const responseText = await responseClone.text();
+      console.log('Response Body:', responseText);
+    } catch (bodyError) {
+      console.log('Response Body: [Could not read response body]', bodyError);
+    }
+
+    console.log('Response OK:', response.ok);
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('====================================');
+
     clearTimeout(timeoutId);
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
+
+    // Verbose logging for N8N POST error
+    console.log('=== N8N WEBHOOK POST ERROR ===');
+    console.log('Error:', error);
+    if (error instanceof Error) {
+      console.log('Error Name:', error.name);
+      console.log('Error Message:', error.message);
+      console.log('Error Stack:', error.stack);
+    } else {
+      console.log('Error (non-Error object):', String(error));
+    }
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('===============================');
+
     throw error;
   }
 }
