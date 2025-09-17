@@ -99,7 +99,7 @@ class RateLimitManager {
         id: 'upload',
         name: 'File Upload Rate Limit',
         windowMs: 300000, // 5 minutes
-        maxRequests: 10,
+        maxRequests: 30,
         keyGenerator: (req: Request) => `upload_${this.getClientId(req)}`,
         skipCondition: (req: Request) => !req.path.includes('/upload'),
         message: 'Too many file uploads from this client',
