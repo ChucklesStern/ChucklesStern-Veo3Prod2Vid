@@ -22,7 +22,7 @@ import { retryManager, withRetry } from "./lib/retryManager";
 import { rawBodyMiddleware, webhookSecurityMiddleware } from "./lib/webhookSecurity";
 
 // Webhook timeout configuration (in milliseconds)
-const WEBHOOK_TIMEOUT = 30000; // 30 seconds
+const WEBHOOK_TIMEOUT = 60000; // 60 seconds - increased for n8n processing
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY = 1000; // 1 second
 
@@ -33,18 +33,39 @@ function calculateRetryDelay(retryCount: number): number {
 
 // Helper function to determine error type
 function determineErrorType(error: any): "webhook_failure" | "network_error" | "timeout" | "validation_error" | "unknown" {
-  if (error.name === 'AbortError' || error.message?.includes('timeout')) {
+  // Timeout errors (AbortError from fetch timeout)
+  if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('aborted')) {
     return 'timeout';
   }
-  if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
+
+  // Network connectivity errors
+  if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET' ||
+      error.code === 'ETIMEDOUT' || error.message?.includes('ENOTFOUND') ||
+      error.message?.includes('Failed to fetch')) {
     return 'network_error';
   }
+
+  // Validation errors
   if (error instanceof z.ZodError) {
     return 'validation_error';
   }
-  if (error.status >= 400 && error.status < 500) {
-    return 'webhook_failure';
+
+  // HTTP status-based classification
+  if (error.status) {
+    if (error.status === 408 || error.status === 504) {
+      return 'timeout';
+    }
+    if (error.status === 429) {
+      return 'network_error'; // Rate limiting
+    }
+    if (error.status >= 400 && error.status < 500) {
+      return 'webhook_failure'; // Client errors (likely payload issues)
+    }
+    if (error.status >= 500) {
+      return 'network_error'; // Server errors (n8n side issues)
+    }
   }
+
   return 'unknown';
 }
 
@@ -53,7 +74,11 @@ async function sendWebhookWithTimeout(url: string, payload: any, timeout: number
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  const requestHeaders = { 'Content-Type': 'application/json' };
+  const requestHeaders = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': 'Fabbitt-VideoGen/1.0'
+  };
   const requestBody = JSON.stringify(payload);
 
   // Verbose logging for N8N POST request

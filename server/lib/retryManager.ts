@@ -73,8 +73,8 @@ class RetryManager {
       retryableStatusCodes: [408, 429, 500, 502, 503, 504],
       timeoutMs: 30000,
       enableCircuitBreaker: true,
-      circuitBreakerThreshold: 5, // 5 failures in window
-      circuitBreakerWindowMs: 300000 // 5 minutes
+      circuitBreakerThreshold: 10, // 10 failures in window (increased from 5)
+      circuitBreakerWindowMs: 600000 // 10 minutes (increased from 5 minutes)
     };
 
     this.circuitBreakers = new Map();
