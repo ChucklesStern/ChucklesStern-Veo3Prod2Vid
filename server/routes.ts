@@ -552,7 +552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/generations", isAuthenticated, async (req, res) => {
     try {
       const validatedBody = GenerationCreateRequestSchema.parse(req.body);
-      
+
       const taskId = randomUUID();
       const generation = await storage.createVideoGeneration({
         taskId,

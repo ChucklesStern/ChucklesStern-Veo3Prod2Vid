@@ -92,7 +92,8 @@ class ValidationManager {
       description: 'Webhook callback validation with enhanced security'
     };
 
-    // Generation creation validation
+    // Generation creation validation - DISABLED due to double validation issue
+    // The route handler already validates with GenerationCreateRequestSchema
     const generationCreateRule: ValidationRule = {
       endpoint: '/api/generations',
       method: 'POST',
@@ -112,8 +113,8 @@ class ValidationManager {
         async: z.enum(['true', 'false']).optional(),
         priority: z.enum(['low', 'normal', 'high']).optional()
       }).strict(),
-      enabled: true,
-      description: 'Video generation request validation with sanitization'
+      enabled: false, // DISABLED - route handler validation is sufficient
+      description: 'Video generation request validation with sanitization (DISABLED)'
     };
 
     // File upload validation

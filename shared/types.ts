@@ -6,8 +6,11 @@ export const UploadResponseSchema = z.object({
 });
 
 export const GenerationCreateRequestSchema = z.object({
-  promptText: z.string().min(1, "Prompt text is required"),
-  imagePath: z.string().optional(),
+  promptText: z.string().trim().min(1, "Prompt text is required"),
+  imagePath: z.string().optional().refine(
+    (path) => !path || path.startsWith('/public-objects/'),
+    "Image path must be a valid public object path"
+  ),
   brand_persona: z.string().optional()
 });
 
