@@ -11,6 +11,12 @@ export const GenerationCreateRequestSchema = z.object({
     (path) => !path || path.startsWith('/public-objects/'),
     "Image path must be a valid public object path"
   ),
+  imagePaths: z.array(
+    z.string().refine(
+      (path) => path.startsWith('/public-objects/'),
+      "Each image path must be a valid public object path"
+    )
+  ).max(10, "Maximum 10 images allowed").optional(),
   brand_persona: z.string().optional()
 });
 
@@ -27,6 +33,7 @@ export const N8nWebhookPayloadSchema = z.object({
   promptText: z.string(),
   imagePath: z.string().nullable(),
   Imageurl: z.string().nullable(),
+  image_urls: z.array(z.string()).optional(),
   brandPersonaImage1Url: z.string().nullable(),
   brandPersonaImage2Url: z.string().nullable(),
   brand_persona: z.string().nullable()

@@ -8,6 +8,7 @@ export const videoGenerations = pgTable("video_generations", {
   taskId: text("task_id").unique().notNull(),
   promptText: text("prompt_text").notNull(),
   imageOriginalPath: text("image_original_path"),
+  imagesPaths: jsonb("images_paths").$type<string[]>(),
   imageGenerationPath: text("image_generation_path"),
   videoPath: text("video_path"),
   status: text("status").notNull().default("pending").$type<"pending" | "processing" | "completed" | "failed" | "200">(),
@@ -28,7 +29,8 @@ export const insertVideoGenerationSchema = createInsertSchema(videoGenerations, 
   status: z.enum(["pending", "processing", "completed", "failed", "200"]).optional(),
   errorType: z.enum(["webhook_failure", "network_error", "timeout", "validation_error", "unknown"]).optional(),
   retryCount: z.string().optional(),
-  maxRetries: z.string().optional()
+  maxRetries: z.string().optional(),
+  imagesPaths: z.array(z.string()).max(10, "Maximum 10 images allowed").optional()
 }).omit({
   id: true,
   createdAt: true,

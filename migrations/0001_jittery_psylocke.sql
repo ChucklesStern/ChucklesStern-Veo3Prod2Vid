@@ -1,0 +1,1 @@
+ALTER TABLE "video_generations" ADD COLUMN "images_paths" jsonb;

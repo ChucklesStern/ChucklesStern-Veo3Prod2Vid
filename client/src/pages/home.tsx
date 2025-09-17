@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { Video, Lightbulb, Play, ExternalLink, Upload } from "lucide-react";
+import { Video, Lightbulb, Play, ExternalLink, Upload, X, Plus } from "lucide-react";
 import { AuthButton } from "@/components/AuthButton";
 import { GenerationStatusManager } from "@/components/GenerationStatusManager";
 import { FloatingStatusPanel } from "@/components/FloatingStatusPanel";
@@ -25,9 +25,16 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
+interface UploadedImage {
+  path: string;
+  url: string;
+  id: string; // unique identifier for each image
+}
+
 export default function Home() {
-  const [uploadedImage, setUploadedImage] = useState<{ path: string; url: string } | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
+  const [uploadingImages, setUploadingImages] = useState<Set<string>>(new Set());
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -62,7 +69,7 @@ export default function Home() {
       addGeneration(data.taskId);
       
       form.reset();
-      setUploadedImage(null);
+      setUploadedImages([]);
       queryClient.invalidateQueries({ queryKey: ['/api/generations'] });
     },
     onError: (error: Error) => {
@@ -77,64 +84,158 @@ export default function Home() {
   const onSubmit = (data: FormData, mutation: ReturnType<typeof createGenerationMutation>) => {
     // Initialize audio context on first user interaction
     initialize();
-    
-    mutation.mutate({
+
+    // Use imagePaths array if multiple images, fallback to single imagePath for backward compatibility
+    const submitData: any = {
       promptText: data.promptText,
-      imagePath: uploadedImage?.path,
       brand_persona: data.brand_persona
-    });
+    };
+
+    if (uploadedImages.length > 1) {
+      submitData.imagePaths = uploadedImages.map(img => img.path);
+    } else if (uploadedImages.length === 1) {
+      submitData.imagePath = uploadedImages[0].path;
+    }
+
+    mutation.mutate(submitData);
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
+  const validateFile = (file: File): string | null => {
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
     if (!allowedTypes.includes(file.type)) {
-      toast({
-        title: "Invalid file type",
-        description: "Only PNG, JPG, WEBP, and GIF files are allowed",
-        variant: "destructive"
-      });
-      return;
+      return "Only PNG, JPG, WEBP, and GIF files are allowed";
     }
 
-    // Validate file size (10MB)
     if (file.size > 10 * 1024 * 1024) {
+      return "File size must be under 10MB";
+    }
+
+    return null;
+  };
+
+  const uploadSingleFile = async (file: File): Promise<UploadedImage> => {
+    const uploadResponse = await api.uploadFile(file);
+    return {
+      id: Math.random().toString(36).substr(2, 9),
+      path: uploadResponse.objectPath,
+      url: uploadResponse.mediaUrl
+    };
+  };
+
+  const handleFileUpload = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+
+    // Check if adding these files would exceed the limit
+    if (uploadedImages.length + fileArray.length > 10) {
       toast({
-        title: "File too large",
-        description: "File size must be under 10MB",
+        title: "Too many files",
+        description: `Maximum 10 images allowed. You can add ${10 - uploadedImages.length} more.`,
         variant: "destructive"
       });
       return;
     }
 
-    setIsUploading(true);
-    try {
-      const uploadResponse = await api.uploadFile(file);
-      setUploadedImage({
-        path: uploadResponse.objectPath,
-        url: uploadResponse.mediaUrl
-      });
+    // Validate all files first
+    for (const file of fileArray) {
+      const error = validateFile(file);
+      if (error) {
+        toast({
+          title: "Invalid file",
+          description: `${file.name}: ${error}`,
+          variant: "destructive"
+        });
+        return;
+      }
+    }
+
+    // Upload files individually
+    const uploadPromises = fileArray.map(async (file) => {
+      const uploadId = Math.random().toString(36).substr(2, 9);
+
+      setUploadingImages(prev => new Set(prev).add(uploadId));
+
+      try {
+        const uploadedImage = await uploadSingleFile(file);
+        uploadedImage.id = uploadId; // Use the same ID for tracking
+
+        setUploadedImages(prev => [...prev, uploadedImage]);
+
+        return { success: true, file: file.name };
+      } catch (error) {
+        toast({
+          title: "Upload failed",
+          description: `${file.name}: ${error instanceof Error ? error.message : "Unknown error occurred"}`,
+          variant: "destructive"
+        });
+        return { success: false, file: file.name };
+      } finally {
+        setUploadingImages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(uploadId);
+          return newSet;
+        });
+      }
+    });
+
+    const results = await Promise.all(uploadPromises);
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+
+    if (successCount > 0) {
       toast({
         title: "Upload successful",
-        description: "Image uploaded successfully!"
+        description: `${successCount} image${successCount > 1 ? 's' : ''} uploaded successfully!${failCount > 0 ? ` ${failCount} failed.` : ''}`
       });
-    } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Unknown error occurred",
-        variant: "destructive"
-      });
-    } finally {
-      setIsUploading(false);
     }
+  };
+
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    handleFileUpload(files);
+
+    // Reset the input so the same file can be selected again
+    event.target.value = '';
+  };
+
+  const removeImage = (imageId: string) => {
+    setUploadedImages(prev => prev.filter(img => img.id !== imageId));
   };
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
   };
+
+  // Drag and drop handlers
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragIn = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setDragActive(true);
+    }
+  }, []);
+
+  const handleDragOut = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileUpload(e.dataTransfer.files);
+    }
+  }, []);
 
   const openMedia = (url: string) => {
     window.open(url, '_blank');
@@ -271,40 +372,73 @@ export default function Home() {
                   {/* Upload Zone */}
                   <div>
                     <Label className="text-sm font-medium text-slate-700">
-                      Image Upload (Optional)
+                      Image Upload (Optional) {uploadedImages.length > 0 && `- ${uploadedImages.length}/10`}
                     </Label>
+
+                    {/* Uploaded Images Grid */}
+                    {uploadedImages.length > 0 && (
+                      <div className="mt-3 mb-4">
+                        <div className="grid grid-cols-3 gap-3">
+                          {uploadedImages.map((image) => (
+                            <div key={image.id} className="relative group">
+                              <img
+                                src={image.url}
+                                alt="Uploaded image"
+                                className="w-full h-20 object-cover rounded-lg border border-slate-200 group-hover:border-slate-300 transition-colors"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeImage(image.id)}
+                                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+
+                          {/* Add More Button */}
+                          {uploadedImages.length < 10 && (
+                            <button
+                              type="button"
+                              onClick={handleUploadClick}
+                              className="w-full h-20 border-2 border-dashed border-slate-300 rounded-lg flex items-center justify-center hover:border-primary/40 hover:bg-slate-50 transition-colors group"
+                            >
+                              <Plus className="text-slate-400 group-hover:text-primary" size={20} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mt-2">
                       <input
                         type="file"
                         ref={fileInputRef}
-                        onChange={handleFileUpload}
+                        onChange={handleFileInputChange}
                         accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                        multiple
                         className="hidden"
                       />
-                      <div 
-                        className="w-full border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-primary/40 transition-colors bg-slate-50 hover:bg-slate-100 cursor-pointer"
-                        onClick={handleUploadClick}
+
+                      {/* Main Upload Zone */}
+                      <div
+                        className={`w-full border-2 border-dashed rounded-lg p-8 text-center transition-all cursor-pointer ${
+                          dragActive
+                            ? 'border-primary bg-primary/5'
+                            : uploadedImages.length === 0
+                              ? 'border-slate-300 bg-slate-50 hover:border-primary/40 hover:bg-slate-100'
+                              : 'border-slate-200 bg-slate-25 hover:border-slate-300'
+                        }`}
+                        onClick={uploadedImages.length < 10 ? handleUploadClick : undefined}
+                        onDrop={handleDrop}
+                        onDragOver={handleDrag}
+                        onDragEnter={handleDragIn}
+                        onDragLeave={handleDragOut}
                       >
-                        {uploadedImage ? (
-                          <div className="flex flex-col items-center space-y-3">
-                            <div className="relative">
-                              <img 
-                                src={uploadedImage.url}
-                                alt="Uploaded image preview"
-                                className="max-w-full max-h-32 object-contain rounded-lg border border-slate-200"
-                              />
-                            </div>
-                            <div>
-                              <p className="text-sm font-medium text-slate-700">
-                                Click to upload a different image
-                              </p>
-                              <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</p>
-                            </div>
-                          </div>
-                        ) : (
+                        {uploadedImages.length === 0 ? (
                           <div className="flex flex-col items-center space-y-3">
                             <div className="w-12 h-12 bg-slate-200 rounded-lg flex items-center justify-center">
-                              {isUploading ? (
+                              {uploadingImages.size > 0 ? (
                                 <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
                               ) : (
                                 <Upload className="text-slate-500" size={24} />
@@ -312,17 +446,53 @@ export default function Home() {
                             </div>
                             <div>
                               <p className="text-sm font-medium text-slate-700">
-                                {isUploading ? "Uploading..." : "Click to upload or drag and drop"}
+                                {uploadingImages.size > 0 ? "Uploading..." : "Click to upload or drag and drop"}
                               </p>
-                              <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</p>
+                              <p className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB • Max 10 images</p>
+                            </div>
+                          </div>
+                        ) : uploadedImages.length < 10 ? (
+                          <div className="flex flex-col items-center space-y-3">
+                            <div className="w-12 h-12 bg-slate-200 rounded-lg flex items-center justify-center">
+                              {uploadingImages.size > 0 ? (
+                                <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Plus className="text-slate-500" size={24} />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-700">
+                                {uploadingImages.size > 0 ? "Uploading more..." : "Add more images"}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">Up to {10 - uploadedImages.length} more images</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center space-y-3">
+                            <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
+                              <Upload className="text-slate-400" size={24} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-slate-600">
+                                Maximum 10 images reached
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">Remove images to add more</p>
                             </div>
                           </div>
                         )}
                       </div>
                     </div>
-                    {uploadedImage && (
+
+                    {/* Status Messages */}
+                    {uploadedImages.length > 0 && (
                       <div className="mt-2 text-sm text-green-600">
-                        ✓ Image uploaded successfully
+                        ✓ {uploadedImages.length} image{uploadedImages.length > 1 ? 's' : ''} uploaded
+                      </div>
+                    )}
+
+                    {uploadingImages.size > 0 && (
+                      <div className="mt-2 text-sm text-blue-600">
+                        Uploading {uploadingImages.size} image{uploadingImages.size > 1 ? 's' : ''}...
                       </div>
                     )}
                   </div>

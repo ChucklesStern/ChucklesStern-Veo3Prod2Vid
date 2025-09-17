@@ -11,7 +11,8 @@
       "Bash(PORT=5002 npm run dev)",
       "Bash(npm run:*)",
       "Bash(npx tsx:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(npx drizzle-kit:*)"
     ],
     "defaultMode": "acceptEdits"
   }

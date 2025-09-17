@@ -558,6 +558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taskId,
         promptText: validatedBody.promptText,
         imageOriginalPath: validatedBody.imagePath || null,
+        imagesPaths: validatedBody.imagePaths || undefined,
         status: "pending" as const
       });
 
@@ -565,16 +566,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const protocol = req.headers['x-forwarded-proto'] || 'http';
       const host = req.headers.host;
 
-      // Construct full public URL for the image
+      // Construct full public URL for the image (backward compatibility)
       let imageUrl = null;
       if (validatedBody.imagePath) {
         imageUrl = `${protocol}://${host}${validatedBody.imagePath}`;
       }
 
+      // Construct full public URLs for multiple images
+      const imageUrls = validatedBody.imagePaths?.map(path =>
+        `${protocol}://${host}${path}`
+      ) || [];
+
       // Get brand persona image URLs - use production URLs if available, otherwise construct from paths
-      const brandPersonaImage1Url = process.env.BASE_MODEL_IMAGE_1_URL || 
+      const brandPersonaImage1Url = process.env.BASE_MODEL_IMAGE_1_URL ||
         `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png")}`;
-      const brandPersonaImage2Url = process.env.BASE_MODEL_IMAGE_2_URL || 
+      const brandPersonaImage2Url = process.env.BASE_MODEL_IMAGE_2_URL ||
         `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png")}`;
 
       const webhookPayload = N8nWebhookPayloadSchema.parse({
@@ -582,6 +588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         promptText: validatedBody.promptText,
         imagePath: validatedBody.imagePath || null,
         Imageurl: imageUrl,
+        image_urls: imageUrls,
         brandPersonaImage1Url,
         brandPersonaImage2Url,
         brand_persona: validatedBody.brand_persona || null
