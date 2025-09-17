@@ -831,22 +831,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const protocol = req.headers['x-forwarded-proto'] || 'http';
       const host = req.headers.host;
 
+      // Construct full public URL for single image (backward compatibility)
       let imageUrl = null;
       if (generation.imageOriginalPath) {
         imageUrl = `${protocol}://${host}${generation.imageOriginalPath}`;
       }
 
-      const brandPersonaImage1Path = process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png";
-      const brandPersonaImage2Path = process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png";
-      
-      const brandPersonaImage1Url = `${protocol}://${host}${brandPersonaImage1Path}`;
-      const brandPersonaImage2Url = `${protocol}://${host}${brandPersonaImage2Path}`;
+      // Reconstruct image URLs array from stored paths (for multi-image support)
+      const imageUrls = generation.imagesPaths?.map(path =>
+        `${protocol}://${host}${path}`
+      ) || [];
+
+      // Get brand persona image URLs - use production URLs if available, otherwise construct from paths
+      const brandPersonaImage1Url = process.env.BASE_MODEL_IMAGE_1_URL ||
+        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png")}`;
+      const brandPersonaImage2Url = process.env.BASE_MODEL_IMAGE_2_URL ||
+        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png")}`;
 
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId: generation.taskId,
         promptText: generation.promptText,
         imagePath: generation.imageOriginalPath,
         Imageurl: imageUrl,
+        image_urls: imageUrls,
         brandPersonaImage1Url,
         brandPersonaImage2Url,
         brand_persona: null // Brand persona is not stored, defaulting to null
