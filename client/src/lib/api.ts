@@ -26,6 +26,12 @@ export const api = {
     console.log('📋 Request Data:', JSON.stringify(data, null, 2));
     console.log('🕐 Timestamp:', new Date().toISOString());
     console.log('📍 Endpoint: POST /api/generations');
+
+    // Show the complete URL being called
+    const fullUrl = `${window.location.origin}/api/generations`;
+    console.log('🌐 COMPLETE CLIENT URL:', fullUrl);
+    console.log('🏠 Origin:', window.location.origin);
+    console.log('🛤️  Relative path:', '/api/generations');
     console.log('===============================================');
 
     const startTime = Date.now();
