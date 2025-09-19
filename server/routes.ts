@@ -1100,7 +1100,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const validatedBody = GenerationCreateRequestSchema.parse(req.body);
+      // Preprocess request body to filter out null values from imagePaths if present
+      const requestBody = { ...req.body };
+      if (requestBody.imagePaths && Array.isArray(requestBody.imagePaths)) {
+        const originalLength = requestBody.imagePaths.length;
+        const originalPaths = [...requestBody.imagePaths];
+
+        requestBody.imagePaths = requestBody.imagePaths.filter(
+          (path: any) => path !== null && path !== undefined && typeof path === 'string' && path.trim() !== ''
+        );
+
+        // Log if filtering occurred
+        if (requestBody.imagePaths.length !== originalLength) {
+          logger.warn('Filtered null/invalid values from imagePaths', {
+            correlationId: (req as any).correlationId,
+            originalPaths,
+            originalLength,
+            filteredPaths: requestBody.imagePaths,
+            filteredLength: requestBody.imagePaths.length,
+            type: 'imagepaths_filtering'
+          });
+        }
+
+        // If no valid paths remain, remove the imagePaths field entirely
+        if (requestBody.imagePaths.length === 0) {
+          delete requestBody.imagePaths;
+        }
+      }
+
+      const validatedBody = GenerationCreateRequestSchema.parse(requestBody);
 
       const taskId = randomUUID();
       const generation = await storage.createVideoGeneration({

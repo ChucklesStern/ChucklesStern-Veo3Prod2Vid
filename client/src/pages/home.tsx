@@ -92,7 +92,14 @@ export default function Home() {
     };
 
     if (uploadedImages.length > 1) {
-      submitData.imagePaths = uploadedImages.map(img => img.path);
+      // Filter out any null/undefined values and ensure all paths are valid strings
+      const validPaths = uploadedImages
+        .map(img => img.path)
+        .filter(path => path && typeof path === 'string' && path.trim() !== '');
+
+      if (validPaths.length > 0) {
+        submitData.imagePaths = validPaths;
+      }
     } else if (uploadedImages.length === 1) {
       submitData.imagePath = uploadedImages[0].path;
     }
