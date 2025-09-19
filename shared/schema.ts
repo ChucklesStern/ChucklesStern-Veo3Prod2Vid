@@ -14,7 +14,7 @@ export const videoGenerations = pgTable("video_generations", {
   status: text("status").notNull().default("pending").$type<"pending" | "processing" | "completed" | "failed" | "200">(),
   errorMessage: text("error_message"),
   errorDetails: jsonb("error_details"),
-  errorType: text("error_type").$type<"webhook_failure" | "network_error" | "timeout" | "validation_error" | "unknown">(),
+  errorType: text("error_type").$type<"webhook_failure" | "network_error" | "timeout" | "validation_error" | "configuration_error" | "unknown">(),
   retryCount: text("retry_count").default("0"),
   maxRetries: text("max_retries").default("3"),
   nextRetryAt: timestamp("next_retry_at"),
@@ -27,7 +27,7 @@ export const videoGenerations = pgTable("video_generations", {
 
 export const insertVideoGenerationSchema = createInsertSchema(videoGenerations, {
   status: z.enum(["pending", "processing", "completed", "failed", "200"]).optional(),
-  errorType: z.enum(["webhook_failure", "network_error", "timeout", "validation_error", "unknown"]).optional(),
+  errorType: z.enum(["webhook_failure", "network_error", "timeout", "validation_error", "configuration_error", "unknown"]).optional(),
   retryCount: z.string().optional(),
   maxRetries: z.string().optional(),
   imagesPaths: z.array(z.string()).max(10, "Maximum 10 images allowed").optional()

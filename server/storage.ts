@@ -7,7 +7,7 @@ import {
   type InsertUser 
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, or, isNull, and } from "drizzle-orm";
+import { eq, desc, or, isNull, and, gte } from "drizzle-orm";
 
 export interface IStorage {
   createVideoGeneration(generation: InsertVideoGeneration): Promise<VideoGeneration>;
@@ -15,7 +15,9 @@ export interface IStorage {
   getVideoGenerationById(id: string): Promise<VideoGeneration | undefined>;
   updateVideoGeneration(taskId: string, updates: Partial<VideoGeneration>): Promise<VideoGeneration | undefined>;
   getCompletedVideoGenerations(limit?: number): Promise<VideoGeneration[]>;
-  
+  getFailedVideoGenerations(limit?: number, since?: Date): Promise<VideoGeneration[]>;
+  getVideoGenerations(limit?: number, since?: Date): Promise<VideoGeneration[]>;
+
   // User management for authentication
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: InsertUser): Promise<User>;
@@ -65,6 +67,38 @@ export class DatabaseStorage implements IStorage {
           isNull(videoGenerations.errorMessage)
         )
       )
+      .orderBy(desc(videoGenerations.createdAt))
+      .limit(limit);
+  }
+
+  async getFailedVideoGenerations(limit: number = 50, since?: Date): Promise<VideoGeneration[]> {
+    const whereConditions = [
+      eq(videoGenerations.status, "failed")
+    ];
+
+    if (since) {
+      whereConditions.push(gte(videoGenerations.createdAt, since));
+    }
+
+    return await db
+      .select()
+      .from(videoGenerations)
+      .where(and(...whereConditions))
+      .orderBy(desc(videoGenerations.createdAt))
+      .limit(limit);
+  }
+
+  async getVideoGenerations(limit: number = 50, since?: Date): Promise<VideoGeneration[]> {
+    const whereConditions: any[] = [];
+
+    if (since) {
+      whereConditions.push(gte(videoGenerations.createdAt, since));
+    }
+
+    return await db
+      .select()
+      .from(videoGenerations)
+      .where(whereConditions.length > 0 ? and(...whereConditions) : undefined)
       .orderBy(desc(videoGenerations.createdAt))
       .limit(limit);
   }

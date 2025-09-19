@@ -89,6 +89,40 @@ export class WebhookError extends AppError {
   }
 }
 
+export class NetworkError extends AppError {
+  constructor(message: string, operation: string, details?: any, correlationId?: string) {
+    super(`Network error during ${operation}: ${message}`, 502, 'NETWORK_ERROR', { operation, ...details }, correlationId);
+  }
+}
+
+export class TimeoutError extends AppError {
+  constructor(operation: string, timeoutMs: number, correlationId?: string) {
+    super(`Operation timed out after ${timeoutMs}ms: ${operation}`, 504, 'TIMEOUT_ERROR', { operation, timeoutMs }, correlationId);
+  }
+}
+
+export class WebhookConfigurationError extends AppError {
+  constructor(message: string, details?: any, correlationId?: string) {
+    super(`Webhook configuration error: ${message}`, 503, 'WEBHOOK_CONFIG_ERROR', details, correlationId);
+  }
+}
+
+export class N8nWebhookError extends AppError {
+  public errorType: string;
+  public retryable: boolean;
+
+  constructor(message: string, statusCode: number, errorType: string, retryable: boolean = false, details?: any, correlationId?: string) {
+    super(`N8N webhook error: ${message}`, 502, 'N8N_WEBHOOK_ERROR', {
+      webhookStatusCode: statusCode,
+      errorType,
+      retryable,
+      ...details
+    }, correlationId);
+    this.errorType = errorType;
+    this.retryable = retryable;
+  }
+}
+
 export class ExternalServiceError extends AppError {
   constructor(service: string, message: string, details?: any, correlationId?: string) {
     super(`${service} error: ${message}`, 502, 'EXTERNAL_SERVICE_ERROR', { service, ...details }, correlationId);
@@ -243,25 +277,99 @@ export function handleDatabaseError(error: any, operation: string, correlationId
   );
 }
 
-// Webhook error helper
+// Enhanced webhook error helper with error type classification
 export function handleWebhookError(
-  url: string, 
-  statusCode: number, 
-  responseBody: string, 
+  url: string,
+  statusCode: number,
+  responseBody: string,
   correlationId?: string
 ): never {
+  const errorType = classifyWebhookError(statusCode);
+  const retryable = isWebhookErrorRetryable(statusCode);
+
   logger.error(`Webhook call failed: ${url}`, {
     correlationId,
     webhookUrl: url,
     statusCode,
     responseBody,
+    errorType,
+    retryable,
     type: 'webhook_error'
   });
 
-  throw new WebhookError(
+  throw new N8nWebhookError(
     `Webhook call failed with status ${statusCode}`,
     statusCode,
+    errorType,
+    retryable,
     { url, responseBody },
+    correlationId
+  );
+}
+
+// Classify webhook errors for better debugging
+export function classifyWebhookError(statusCode: number): string {
+  if (statusCode === 0) return 'network_unreachable';
+  if (statusCode === 408 || statusCode === 504) return 'timeout';
+  if (statusCode === 429) return 'rate_limited';
+  if (statusCode === 401 || statusCode === 403) return 'authentication_failed';
+  if (statusCode === 404) return 'endpoint_not_found';
+  if (statusCode >= 400 && statusCode < 500) return 'client_error';
+  if (statusCode >= 500 && statusCode < 600) return 'server_error';
+  return 'unknown';
+}
+
+// Determine if webhook error is retryable
+export function isWebhookErrorRetryable(statusCode: number): boolean {
+  // Don't retry client errors (400-499) except for rate limiting and timeouts
+  if (statusCode >= 400 && statusCode < 500) {
+    return statusCode === 408 || statusCode === 429;
+  }
+  // Retry server errors (500-599) and network issues
+  if (statusCode >= 500 || statusCode === 0) {
+    return true;
+  }
+  return false;
+}
+
+// Network error helper
+export function handleNetworkError(
+  operation: string,
+  error: any,
+  correlationId?: string
+): never {
+  logger.error(`Network error during ${operation}`, {
+    correlationId,
+    operation,
+    error: error.message,
+    code: error.code,
+    type: 'network_error'
+  });
+
+  throw new NetworkError(
+    error.message || 'Network connection failed',
+    operation,
+    { originalError: error.message, code: error.code },
+    correlationId
+  );
+}
+
+// Environment validation error helper
+export function handleConfigurationError(
+  configKey: string,
+  message: string,
+  correlationId?: string
+): never {
+  logger.error(`Configuration error: ${configKey}`, {
+    correlationId,
+    configKey,
+    message,
+    type: 'configuration_error'
+  });
+
+  throw new WebhookConfigurationError(
+    `Missing or invalid configuration: ${configKey} - ${message}`,
+    { configKey },
     correlationId
   );
 }

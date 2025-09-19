@@ -17,7 +17,7 @@ import { z } from "zod";
 import { logger } from "./lib/logger";
 import { metricsCollector } from "./lib/metrics";
 import { alertingSystem } from "./lib/alerting";
-import { AppError, WebhookError, handleDatabaseError, handleWebhookError, asyncHandler } from "./lib/errorHandler";
+import { AppError, WebhookError, N8nWebhookError, NetworkError, TimeoutError, WebhookConfigurationError, handleDatabaseError, handleWebhookError, handleNetworkError, handleConfigurationError, classifyWebhookError, isWebhookErrorRetryable, asyncHandler } from "./lib/errorHandler";
 import { retryManager, withRetry } from "./lib/retryManager";
 import { rawBodyMiddleware, webhookSecurityMiddleware } from "./lib/webhookSecurity";
 
@@ -31,8 +31,62 @@ function calculateRetryDelay(retryCount: number): number {
   return BASE_RETRY_DELAY * Math.pow(2, retryCount);
 }
 
-// Helper function to determine error type
-function determineErrorType(error: any): "webhook_failure" | "network_error" | "timeout" | "validation_error" | "unknown" {
+// Helper function to validate webhook configuration and connectivity
+async function validateWebhookConfiguration(webhookUrl: string, correlationId: string): Promise<void> {
+  // Validate URL format
+  try {
+    const url = new URL(webhookUrl);
+    logger.info('Webhook URL validation passed', {
+      correlationId,
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port,
+      type: 'webhook_config_validation'
+    });
+  } catch (error) {
+    handleConfigurationError('N8N_WEBHOOK_URL', 'Invalid URL format', correlationId);
+  }
+
+  // Test basic connectivity (HEAD request with short timeout)
+  try {
+    logger.info('Testing webhook endpoint connectivity', {
+      correlationId,
+      webhookUrl,
+      type: 'webhook_connectivity_test'
+    });
+
+    const connectivityTest = await fetch(webhookUrl, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000) // 5 second timeout for connectivity test
+    });
+
+    logger.info('Webhook connectivity test completed', {
+      correlationId,
+      webhookUrl,
+      status: connectivityTest.status,
+      reachable: true,
+      type: 'webhook_connectivity_result'
+    });
+  } catch (error: any) {
+    logger.warn('Webhook connectivity test failed', {
+      correlationId,
+      webhookUrl,
+      error: error.message,
+      errorName: error.name,
+      reachable: false,
+      type: 'webhook_connectivity_result'
+    });
+    // Don't throw here - this is just a warning, the actual call might still work
+  }
+}
+
+// Enhanced error classification with more granular detection
+function determineErrorType(error: any): "webhook_failure" | "network_error" | "timeout" | "validation_error" | "configuration_error" | "unknown" {
+  // Configuration errors
+  if (error instanceof WebhookConfigurationError) {
+    return 'configuration_error';
+  }
+
   // Timeout errors (AbortError from fetch timeout)
   if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('aborted')) {
     return 'timeout';
@@ -41,7 +95,7 @@ function determineErrorType(error: any): "webhook_failure" | "network_error" | "
   // Network connectivity errors
   if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET' ||
       error.code === 'ETIMEDOUT' || error.message?.includes('ENOTFOUND') ||
-      error.message?.includes('Failed to fetch')) {
+      error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
     return 'network_error';
   }
 
@@ -50,43 +104,125 @@ function determineErrorType(error: any): "webhook_failure" | "network_error" | "
     return 'validation_error';
   }
 
-  // HTTP status-based classification
-  if (error.status) {
-    if (error.status === 408 || error.status === 504) {
-      return 'timeout';
-    }
-    if (error.status === 429) {
-      return 'network_error'; // Rate limiting
-    }
-    if (error.status >= 400 && error.status < 500) {
-      return 'webhook_failure'; // Client errors (likely payload issues)
-    }
-    if (error.status >= 500) {
-      return 'network_error'; // Server errors (n8n side issues)
+  // HTTP status-based classification using our enhanced classifier
+  if (error.status || error.statusCode) {
+    const statusCode = error.status || error.statusCode;
+    const classified = classifyWebhookError(statusCode);
+
+    switch (classified) {
+      case 'timeout': return 'timeout';
+      case 'network_unreachable': return 'network_error';
+      case 'rate_limited': return 'network_error';
+      case 'server_error': return 'network_error';
+      case 'authentication_failed':
+      case 'endpoint_not_found':
+      case 'client_error':
+        return 'webhook_failure';
+      default: return 'webhook_failure';
     }
   }
 
   return 'unknown';
 }
 
+// Helper function to generate webhook health recommendations
+function generateWebhookHealthRecommendations(
+  successRate: number,
+  errorPatterns: Record<string, any>,
+  endpointStatus: string
+): string[] {
+  const recommendations = [];
+
+  if (successRate < 50) {
+    recommendations.push('🚨 Critical: Webhook success rate is below 50%. Immediate investigation required.');
+  } else if (successRate < 80) {
+    recommendations.push('⚠️ Warning: Webhook success rate is below 80%. Review error patterns.');
+  }
+
+  if (endpointStatus === 'unreachable') {
+    recommendations.push('🔗 Network: Webhook endpoint is unreachable. Check N8N service status and network connectivity.');
+  } else if (endpointStatus === 'error') {
+    recommendations.push('🔧 Endpoint: Webhook endpoint is responding with errors. Check N8N workflow configuration.');
+  }
+
+  // Analyze error patterns for specific recommendations
+  const topErrorTypes = Object.entries(errorPatterns)
+    .sort(([,a], [,b]) => (b as any).count - (a as any).count)
+    .slice(0, 3);
+
+  for (const [errorType, errorData] of topErrorTypes) {
+    const data = errorData as any;
+    const percentage = Math.round((data.count / Object.values(errorPatterns).reduce((sum: number, p: any) => sum + p.count, 0)) * 100);
+
+    if (errorType === 'timeout' && percentage > 20) {
+      recommendations.push(`⏱️ Timeout: ${percentage}% of failures are timeouts. Consider increasing webhook timeout or optimizing N8N workflow performance.`);
+    } else if (errorType === 'network_error' && percentage > 20) {
+      recommendations.push(`🌐 Network: ${percentage}% of failures are network errors. Check connectivity between your service and N8N.`);
+    } else if (errorType === 'webhook_failure' && percentage > 20) {
+      recommendations.push(`📨 Webhook: ${percentage}% of failures are webhook-related. Review N8N workflow logic and payload handling.`);
+    }
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push('✅ System appears healthy. Continue monitoring for any emerging patterns.');
+  }
+
+  return recommendations;
+}
+
+// Helper function to sanitize payload for logging (remove sensitive data)
+function sanitizePayloadForLogging(payload: any): any {
+  if (!payload || typeof payload !== 'object') return payload;
+
+  const sanitized = { ...payload };
+
+  // List of keys that might contain sensitive data
+  const sensitiveKeys = ['token', 'password', 'key', 'secret', 'auth', 'authorization'];
+
+  for (const key of Object.keys(sanitized)) {
+    if (sensitiveKeys.some(sensitiveKey => key.toLowerCase().includes(sensitiveKey))) {
+      sanitized[key] = '[REDACTED]';
+    }
+  }
+
+  return sanitized;
+}
+
 // Helper function to send webhook with timeout
-async function sendWebhookWithTimeout(url: string, payload: any, timeout: number = WEBHOOK_TIMEOUT) {
+async function sendWebhookWithTimeout(url: string, payload: any, timeout: number = WEBHOOK_TIMEOUT, correlationId?: string) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const startTime = Date.now();
 
   const requestHeaders = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    'User-Agent': 'Fabbitt-VideoGen/1.0'
+    'User-Agent': 'Fabbitt-VideoGen/1.0',
+    'X-Correlation-ID': correlationId || 'unknown'
   };
   const requestBody = JSON.stringify(payload);
+  const sanitizedPayload = sanitizePayloadForLogging(payload);
 
-  // Verbose logging for N8N POST request
+  // Enhanced structured logging for N8N POST request
+  logger.info('N8N webhook request initiated', {
+    correlationId,
+    webhookUrl: url,
+    method: 'POST',
+    headers: requestHeaders,
+    payloadSize: requestBody.length,
+    payload: sanitizedPayload,
+    timeout,
+    type: 'n8n_webhook_request_start'
+  });
+
+  // Verbose console logging for production debugging (temporary)
   console.log('=== N8N WEBHOOK POST REQUEST ===');
+  console.log('Correlation ID:', correlationId);
   console.log('URL:', url);
   console.log('Method: POST');
   console.log('Headers:', JSON.stringify(requestHeaders, null, 2));
-  console.log('Request Body:', requestBody);
+  console.log('Request Body Size:', requestBody.length, 'bytes');
+  console.log('Request Body (sanitized):', JSON.stringify(sanitizedPayload, null, 2));
   console.log('Timeout:', timeout, 'ms');
   console.log('Timestamp:', new Date().toISOString());
   console.log('=====================================');
@@ -99,25 +235,47 @@ async function sendWebhookWithTimeout(url: string, payload: any, timeout: number
       signal: controller.signal
     });
 
-    // Verbose logging for N8N POST response
-    console.log('=== N8N WEBHOOK POST RESPONSE ===');
-    console.log('Status:', response.status);
-    console.log('Status Text:', response.statusText);
-    console.log('Response Headers:');
-    response.headers.forEach((value, key) => {
-      console.log(`  ${key}: ${value}`);
-    });
+    const duration = Date.now() - startTime;
 
     // Clone response to read body without consuming it
     const responseClone = response.clone();
+    let responseText = '';
     try {
-      const responseText = await responseClone.text();
-      console.log('Response Body:', responseText);
+      responseText = await responseClone.text();
     } catch (bodyError) {
-      console.log('Response Body: [Could not read response body]', bodyError);
+      responseText = '[Could not read response body]';
+      logger.warn('Failed to read webhook response body', {
+        correlationId,
+        error: bodyError instanceof Error ? bodyError.message : String(bodyError),
+        type: 'webhook_response_body_read_error'
+      });
     }
 
+    const responseHeaders = Object.fromEntries(response.headers.entries());
+
+    // Enhanced structured logging for N8N POST response
+    logger.info('N8N webhook response received', {
+      correlationId,
+      webhookUrl: url,
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: responseHeaders,
+      bodySize: responseText.length,
+      duration,
+      type: 'n8n_webhook_response_success'
+    });
+
+    // Verbose console logging for production debugging
+    console.log('=== N8N WEBHOOK POST RESPONSE ===');
+    console.log('Correlation ID:', correlationId);
+    console.log('Status:', response.status);
+    console.log('Status Text:', response.statusText);
     console.log('Response OK:', response.ok);
+    console.log('Duration:', duration, 'ms');
+    console.log('Response Headers:', JSON.stringify(responseHeaders, null, 2));
+    console.log('Response Body Size:', responseText.length, 'bytes');
+    console.log('Response Body:', responseText);
     console.log('Timestamp:', new Date().toISOString());
     console.log('====================================');
 
@@ -125,16 +283,40 @@ async function sendWebhookWithTimeout(url: string, payload: any, timeout: number
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
+    const duration = Date.now() - startTime;
 
-    // Verbose logging for N8N POST error
+    const errorType = determineErrorType(error);
+    const retryable = isWebhookErrorRetryable((error as any)?.status || 0);
+
+    // Enhanced structured logging for N8N POST error
+    logger.error('N8N webhook request failed', {
+      correlationId,
+      webhookUrl: url,
+      error: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : 'Unknown',
+      errorType,
+      retryable,
+      duration,
+      timeout,
+      type: 'n8n_webhook_request_error'
+    });
+
+    // Verbose console logging for production debugging
     console.log('=== N8N WEBHOOK POST ERROR ===');
-    console.log('Error:', error);
+    console.log('Correlation ID:', correlationId);
+    console.log('URL:', url);
+    console.log('Duration before error:', duration, 'ms');
+    console.log('Error Type:', errorType);
+    console.log('Retryable:', retryable);
+    console.log('Error Details:');
     if (error instanceof Error) {
-      console.log('Error Name:', error.name);
-      console.log('Error Message:', error.message);
-      console.log('Error Stack:', error.stack);
+      console.log('  Name:', error.name);
+      console.log('  Message:', error.message);
+      console.log('  Stack:', error.stack);
+      console.log('  Code:', (error as any).code);
+      console.log('  Status:', (error as any).status);
     } else {
-      console.log('Error (non-Error object):', String(error));
+      console.log('  Error (non-Error object):', String(error));
     }
     console.log('Timestamp:', new Date().toISOString());
     console.log('===============================');
@@ -152,8 +334,19 @@ async function handleWebhookCall(taskId: string, webhookPayload: any, correlatio
 }> {
   const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL;
   if (!n8nWebhookUrl) {
-    throw new Error("N8N_WEBHOOK_URL not configured");
+    handleConfigurationError('N8N_WEBHOOK_URL', 'Environment variable not set', correlationId);
   }
+
+  // Validate webhook configuration and test connectivity
+  await validateWebhookConfiguration(n8nWebhookUrl, correlationId);
+
+  logger.info('Starting webhook call process', {
+    correlationId,
+    taskId,
+    webhookUrl: n8nWebhookUrl,
+    payloadSize: JSON.stringify(webhookPayload).length,
+    type: 'webhook_call_start'
+  });
 
   // Use retry manager for webhook calls
   const webhookOperation = async () => {
@@ -170,7 +363,7 @@ async function handleWebhookCall(taskId: string, webhookPayload: any, correlatio
       lastAttemptAt: new Date() 
     });
 
-    const webhookResponse = await sendWebhookWithTimeout(n8nWebhookUrl, webhookPayload);
+    const webhookResponse = await sendWebhookWithTimeout(n8nWebhookUrl, webhookPayload, WEBHOOK_TIMEOUT, correlationId);
     
     // Always capture response body for analysis
     let responseBody: string = "";
@@ -437,14 +630,326 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/monitoring/circuit-breaker/reset/:operationId", async (req, res) => {
     const { retryManager } = await import("./lib/retryManager");
     const { operationId } = req.params;
-    
+
     const reset = retryManager.resetCircuitBreaker(operationId);
-    
+
     res.json({
       success: reset,
       message: reset ? `Circuit breaker reset for ${operationId}` : `Operation ${operationId} not found`,
       correlationId: (req as any).correlationId
     });
+  });
+
+  // Enhanced webhook failure analysis endpoint
+  app.get("/api/monitoring/webhook-failures", async (req, res) => {
+    try {
+      const {
+        limit = '50',
+        since,
+        errorType,
+        correlationId: searchCorrelationId,
+        taskId
+      } = req.query;
+
+      const limitNum = Math.min(parseInt(limit as string), 500); // Max 500 results
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000); // Default: last 24 hours
+
+      // Get failed video generations with webhook errors
+      const failedGenerations = await storage.getFailedVideoGenerations(limitNum, sinceDate);
+
+      // Filter by additional criteria if provided
+      let filteredGenerations = failedGenerations;
+
+      if (errorType) {
+        filteredGenerations = filteredGenerations.filter(g => g.errorType === errorType);
+      }
+
+      if (searchCorrelationId) {
+        filteredGenerations = filteredGenerations.filter(g =>
+          g.taskId === searchCorrelationId
+        );
+      }
+
+      if (taskId) {
+        filteredGenerations = filteredGenerations.filter(g => g.taskId === taskId);
+      }
+
+      // Aggregate error statistics
+      const errorStats = filteredGenerations.reduce((stats, gen) => {
+        const type = gen.errorType || 'unknown';
+        stats[type] = (stats[type] || 0) + 1;
+        return stats;
+      }, {} as Record<string, number>);
+
+      const statusStats = filteredGenerations.reduce((stats, gen) => {
+        const status = gen.webhookResponseStatus || 'no_response';
+        stats[status] = (stats[status] || 0) + 1;
+        return stats;
+      }, {} as Record<string, number>);
+
+      res.json({
+        failures: filteredGenerations.map(gen => ({
+          id: gen.id,
+          taskId: gen.taskId,
+          status: gen.status,
+          errorMessage: gen.errorMessage,
+          errorType: gen.errorType,
+          errorDetails: gen.errorDetails,
+          webhookResponseStatus: gen.webhookResponseStatus,
+          webhookResponseBody: gen.webhookResponseBody,
+          retryCount: gen.retryCount,
+          lastAttemptAt: gen.lastAttemptAt,
+          createdAt: gen.createdAt
+        })),
+        statistics: {
+          total: filteredGenerations.length,
+          errorTypes: errorStats,
+          responseStatuses: statusStats,
+          timeRange: {
+            since: sinceDate.toISOString(),
+            until: new Date().toISOString()
+          }
+        },
+        correlationId: (req as any).correlationId
+      });
+    } catch (error) {
+      console.error('Webhook failures analysis error:', error);
+      res.status(500).json({ error: "Failed to analyze webhook failures" });
+    }
+  });
+
+  // Webhook request tracing endpoint
+  app.get("/api/monitoring/webhook-trace/:correlationId", async (req, res) => {
+    try {
+      const { correlationId: traceId } = req.params;
+
+      // Get generation by task ID
+      const generation = await storage.getVideoGenerationByTaskId(traceId);
+
+      if (!generation) {
+        return res.status(404).json({
+          error: "No generation found for correlation ID",
+          correlationId: (req as any).correlationId
+        });
+      }
+
+      // Compile trace information
+      const trace = {
+        generation: {
+          id: generation.id,
+          taskId: generation.taskId,
+          status: generation.status,
+          createdAt: generation.createdAt,
+          lastAttemptAt: generation.lastAttemptAt,
+          promptText: generation.promptText,
+          imageOriginalPath: generation.imageOriginalPath
+        },
+        webhook: {
+          errorMessage: generation.errorMessage,
+          errorType: generation.errorType,
+          errorDetails: generation.errorDetails,
+          webhookResponseStatus: generation.webhookResponseStatus,
+          webhookResponseBody: generation.webhookResponseBody,
+          retryCount: generation.retryCount,
+          maxRetries: generation.maxRetries,
+          nextRetryAt: generation.nextRetryAt
+        },
+        analysis: {
+          isRetryable: generation.errorType ?
+            isWebhookErrorRetryable(parseInt(generation.webhookResponseStatus || '0')) :
+            null,
+          errorClassification: generation.webhookResponseStatus ?
+            classifyWebhookError(parseInt(generation.webhookResponseStatus)) :
+            null,
+          suggestedActions: [] as string[]
+        }
+      };
+
+      // Add suggested actions based on error analysis
+      if (generation.errorType === 'timeout') {
+        trace.analysis.suggestedActions.push('Consider increasing webhook timeout');
+        trace.analysis.suggestedActions.push('Check n8n workflow performance');
+      } else if (generation.errorType === 'network_error') {
+        trace.analysis.suggestedActions.push('Verify n8n endpoint accessibility');
+        trace.analysis.suggestedActions.push('Check network connectivity');
+      } else if (generation.webhookResponseStatus === '404') {
+        trace.analysis.suggestedActions.push('Verify N8N_WEBHOOK_URL configuration');
+        trace.analysis.suggestedActions.push('Check n8n workflow webhook endpoint');
+      } else if (generation.webhookResponseStatus === '401' || generation.webhookResponseStatus === '403') {
+        trace.analysis.suggestedActions.push('Check webhook authentication configuration');
+      }
+
+      res.json({
+        trace,
+        correlationId: (req as any).correlationId
+      });
+    } catch (error) {
+      console.error('Webhook trace error:', error);
+      res.status(500).json({ error: "Failed to trace webhook request" });
+    }
+  });
+
+  // Real-time webhook health monitoring dashboard
+  app.get("/api/monitoring/webhook-health", async (req, res) => {
+    try {
+      const {
+        period = '1h' // 1h, 6h, 24h, 7d
+      } = req.query;
+
+      const periodMs = {
+        '1h': 60 * 60 * 1000,
+        '6h': 6 * 60 * 60 * 1000,
+        '24h': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000
+      }[period as string] || 60 * 60 * 1000;
+
+      const since = new Date(Date.now() - periodMs);
+
+      // Get recent webhook attempts (both successful and failed)
+      const recentGenerations = await storage.getVideoGenerations(100, since);
+      const failedGenerations = await storage.getFailedVideoGenerations(100, since);
+
+      // Calculate webhook health metrics
+      const totalAttempts = recentGenerations.length;
+      const successfulAttempts = recentGenerations.filter(g =>
+        g.status === 'completed' || g.status === 'processing'
+      ).length;
+      const failedAttempts = failedGenerations.length;
+
+      const successRate = totalAttempts > 0 ? (successfulAttempts / totalAttempts) * 100 : 0;
+
+      // Analyze error patterns
+      const errorPatterns = failedGenerations.reduce((patterns, gen) => {
+        const errorType = gen.errorType || 'unknown';
+        const statusCode = gen.webhookResponseStatus || 'no_response';
+
+        if (!patterns[errorType]) {
+          patterns[errorType] = { count: 0, statuses: {}, recent: [] };
+        }
+
+        patterns[errorType].count++;
+        patterns[errorType].statuses[statusCode] = (patterns[errorType].statuses[statusCode] || 0) + 1;
+
+        if (patterns[errorType].recent.length < 3) {
+          patterns[errorType].recent.push({
+            taskId: gen.taskId,
+            errorMessage: gen.errorMessage,
+            timestamp: gen.lastAttemptAt || gen.createdAt
+          });
+        }
+
+        return patterns;
+      }, {} as Record<string, any>);
+
+      // Get current webhook endpoint status
+      let endpointStatus = 'unknown';
+      let endpointResponseTime = null;
+
+      if (process.env.N8N_WEBHOOK_URL) {
+        try {
+          const startTime = Date.now();
+          const testResponse = await fetch(process.env.N8N_WEBHOOK_URL, {
+            method: 'HEAD',
+            signal: AbortSignal.timeout(5000)
+          });
+          endpointResponseTime = Date.now() - startTime;
+          endpointStatus = testResponse.ok ? 'healthy' : 'error';
+        } catch (error) {
+          endpointStatus = 'unreachable';
+        }
+      }
+
+      // Calculate performance metrics
+      const averageRetries = failedGenerations.reduce((sum, gen) =>
+        sum + parseInt(gen.retryCount || '0'), 0
+      ) / Math.max(failedGenerations.length, 1);
+
+      res.json({
+        period,
+        timestamp: new Date().toISOString(),
+        webhook: {
+          endpoint: process.env.N8N_WEBHOOK_URL ? 'configured' : 'missing',
+          status: endpointStatus,
+          responseTime: endpointResponseTime
+        },
+        metrics: {
+          totalRequests: totalAttempts,
+          successfulRequests: successfulAttempts,
+          failedRequests: failedAttempts,
+          successRate: Math.round(successRate * 100) / 100,
+          averageRetries: Math.round(averageRetries * 100) / 100
+        },
+        errorAnalysis: {
+          patterns: errorPatterns,
+          topErrors: Object.entries(errorPatterns)
+            .sort(([,a], [,b]) => (b as any).count - (a as any).count)
+            .slice(0, 5)
+        },
+        recommendations: generateWebhookHealthRecommendations(successRate, errorPatterns, endpointStatus),
+        correlationId: (req as any).correlationId
+      });
+    } catch (error) {
+      console.error('Webhook health monitoring error:', error);
+      res.status(500).json({ error: "Failed to retrieve webhook health data" });
+    }
+  });
+
+  // Live webhook activity feed
+  app.get("/api/monitoring/webhook-activity", async (req, res) => {
+    try {
+      const {
+        limit = '20',
+        includeSuccessful = 'false'
+      } = req.query;
+
+      const limitNum = Math.min(parseInt(limit as string), 100);
+      const includeSuccess = includeSuccessful === 'true';
+
+      // Get recent webhook activities
+      const activities = [];
+
+      if (includeSuccess) {
+        const recentGenerations = await storage.getVideoGenerations(limitNum, undefined);
+        activities.push(...recentGenerations.map(gen => ({
+          type: 'webhook_call',
+          taskId: gen.taskId,
+          status: gen.status,
+          timestamp: gen.lastAttemptAt || gen.createdAt,
+          success: gen.status === 'completed' || gen.status === 'processing',
+          errorType: gen.errorType,
+          errorMessage: gen.errorMessage,
+          webhookStatus: gen.webhookResponseStatus
+        })));
+      }
+
+      const failedGenerations = await storage.getFailedVideoGenerations(limitNum);
+      activities.push(...failedGenerations.map(gen => ({
+        type: 'webhook_failure',
+        taskId: gen.taskId,
+        status: gen.status,
+        timestamp: gen.lastAttemptAt || gen.createdAt,
+        success: false,
+        errorType: gen.errorType,
+        errorMessage: gen.errorMessage,
+        webhookStatus: gen.webhookResponseStatus,
+        retryCount: gen.retryCount
+      })));
+
+      // Sort by timestamp (most recent first)
+      activities.sort((a, b) => {
+        const timestampA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const timestampB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return timestampB - timestampA;
+      });
+
+      res.json({
+        activities: activities.slice(0, limitNum),
+        correlationId: (req as any).correlationId
+      });
+    } catch (error) {
+      console.error('Webhook activity feed error:', error);
+      res.status(500).json({ error: "Failed to retrieve webhook activity" });
+    }
   });
 
   // Public object serving endpoint
