@@ -1081,6 +1081,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create video generation - requires authentication
   app.post("/api/generations", isAuthenticated, async (req, res) => {
     try {
+      // Enhanced logging for debugging validation issues
+      if (req.body.imagePaths) {
+        logger.debug('Request imagePaths validation', {
+          correlationId: (req as any).correlationId,
+          imagePaths: req.body.imagePaths,
+          imagePathsType: typeof req.body.imagePaths,
+          imagePathsIsArray: Array.isArray(req.body.imagePaths),
+          imagePathsLength: Array.isArray(req.body.imagePaths) ? req.body.imagePaths.length : 'N/A',
+          imagePathsItems: Array.isArray(req.body.imagePaths) ? 
+            req.body.imagePaths.map((item: any, index: number) => ({
+              index,
+              value: item,
+              type: typeof item
+            })) : 'N/A',
+          type: 'request_validation_debug'
+        });
+      }
+
       const validatedBody = GenerationCreateRequestSchema.parse(req.body);
 
       const taskId = randomUUID();
@@ -1160,7 +1178,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ id: generation.id, taskId: generation.taskId });
     } catch (error) {
       console.error('Generation creation error:', error);
+      
       if (error instanceof z.ZodError) {
+        // Enhanced validation error logging
+        logger.error('Validation failed with details', {
+          correlationId: (req as any).correlationId,
+          requestBody: req.body,
+          validationErrors: error.errors,
+          requestBodyType: typeof req.body,
+          imagePathsPresent: !!req.body.imagePaths,
+          imagePathsValue: req.body.imagePaths,
+          type: 'validation_error_details'
+        });
+
         return res.status(400).json({ error: "Validation failed", details: error.errors });
       }
       res.status(500).json({ error: error instanceof Error ? error.message : 'Generation failed' });
