@@ -22,8 +22,38 @@ export const api = {
 
   // Create video generation
   createGeneration: async (data: GenerationCreateRequest) => {
-    const response = await apiRequest('POST', '/api/generations', data);
-    return response.json();
+    console.log('🎬 === CLIENT: CREATING VIDEO GENERATION ===');
+    console.log('📋 Request Data:', JSON.stringify(data, null, 2));
+    console.log('🕐 Timestamp:', new Date().toISOString());
+    console.log('📍 Endpoint: POST /api/generations');
+    console.log('===============================================');
+
+    const startTime = Date.now();
+    try {
+      const response = await apiRequest('POST', '/api/generations', data);
+      const duration = Date.now() - startTime;
+      const result = await response.json();
+
+      console.log('✅ === CLIENT: GENERATION REQUEST SUCCESS ===');
+      console.log('⏱️ Duration:', duration, 'ms');
+      console.log('📨 Response Status:', response.status);
+      console.log('📋 Response Data:', JSON.stringify(result, null, 2));
+      console.log('🕐 Completed at:', new Date().toISOString());
+      console.log('============================================');
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      console.error('❌ === CLIENT: GENERATION REQUEST FAILED ===');
+      console.error('⏱️ Duration:', duration, 'ms');
+      console.error('🚫 Error:', error);
+      console.error('📋 Original Request Data:', JSON.stringify(data, null, 2));
+      console.error('🕐 Failed at:', new Date().toISOString());
+      console.error('===========================================');
+
+      throw error;
+    }
   },
 
   // Get completed generations
@@ -46,7 +76,37 @@ export const api = {
 
   // Retry failed generation
   retryGeneration: async (data: RetryGenerationRequest): Promise<RetryGenerationResponse> => {
-    const response = await apiRequest('POST', '/api/generations/retry', data);
-    return response.json();
+    console.log('🔄 === CLIENT: RETRYING GENERATION ===');
+    console.log('📋 Retry Data:', JSON.stringify(data, null, 2));
+    console.log('🕐 Timestamp:', new Date().toISOString());
+    console.log('📍 Endpoint: POST /api/generations/retry');
+    console.log('=====================================');
+
+    const startTime = Date.now();
+    try {
+      const response = await apiRequest('POST', '/api/generations/retry', data);
+      const duration = Date.now() - startTime;
+      const result = await response.json();
+
+      console.log('✅ === CLIENT: RETRY REQUEST SUCCESS ===');
+      console.log('⏱️ Duration:', duration, 'ms');
+      console.log('📨 Response Status:', response.status);
+      console.log('📋 Response Data:', JSON.stringify(result, null, 2));
+      console.log('🕐 Completed at:', new Date().toISOString());
+      console.log('======================================');
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      console.error('❌ === CLIENT: RETRY REQUEST FAILED ===');
+      console.error('⏱️ Duration:', duration, 'ms');
+      console.error('🚫 Error:', error);
+      console.error('📋 Original Retry Data:', JSON.stringify(data, null, 2));
+      console.error('🕐 Failed at:', new Date().toISOString());
+      console.error('=====================================');
+
+      throw error;
+    }
   }
 };

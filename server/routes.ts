@@ -222,6 +222,7 @@ async function sendWebhookWithTimeout(url: string, payload: any, timeout: number
   console.log('Method: POST');
   console.log('Headers:', JSON.stringify(requestHeaders, null, 2));
   console.log('Request Body Size:', requestBody.length, 'bytes');
+  console.log('Request Body (FULL PAYLOAD):', JSON.stringify(payload, null, 2));
   console.log('Request Body (sanitized):', JSON.stringify(sanitizedPayload, null, 2));
   console.log('Timeout:', timeout, 'ms');
   console.log('Timestamp:', new Date().toISOString());
