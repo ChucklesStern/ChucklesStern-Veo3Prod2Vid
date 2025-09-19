@@ -32,7 +32,6 @@ export const N8nWebhookPayloadSchema = z.object({
   taskId: z.string(),
   promptText: z.string(),
   imagePath: z.string().nullable(),
-  Imageurl: z.string().nullable(),
   image_urls: z.array(z.string()).optional(),
   brandPersonaImage1Url: z.string().nullable(),
   brandPersonaImage2Url: z.string().nullable(),

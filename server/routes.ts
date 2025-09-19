@@ -1114,12 +1114,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const protocol = req.headers['x-forwarded-proto'] || 'http';
       const host = req.headers.host;
 
-      // Construct full public URL for the image (backward compatibility)
-      let imageUrl = null;
-      if (validatedBody.imagePath) {
-        imageUrl = `${protocol}://${host}${validatedBody.imagePath}`;
-      }
-
       // Construct full public URLs for multiple images
       const imageUrls = validatedBody.imagePaths?.map(path =>
         `${protocol}://${host}${path}`
@@ -1135,7 +1129,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taskId,
         promptText: validatedBody.promptText,
         imagePath: validatedBody.imagePath || null,
-        Imageurl: imageUrl,
         image_urls: imageUrls,
         brandPersonaImage1Url,
         brandPersonaImage2Url,
@@ -1391,12 +1384,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const protocol = req.headers['x-forwarded-proto'] || 'http';
       const host = req.headers.host;
 
-      // Construct full public URL for single image (backward compatibility)
-      let imageUrl = null;
-      if (generation.imageOriginalPath) {
-        imageUrl = `${protocol}://${host}${generation.imageOriginalPath}`;
-      }
-
       // Reconstruct image URLs array from stored paths (for multi-image support)
       const imageUrls = generation.imagesPaths?.map(path =>
         `${protocol}://${host}${path}`
@@ -1412,7 +1399,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taskId: generation.taskId,
         promptText: generation.promptText,
         imagePath: generation.imageOriginalPath,
-        Imageurl: imageUrl,
         image_urls: imageUrls,
         brandPersonaImage1Url,
         brandPersonaImage2Url,

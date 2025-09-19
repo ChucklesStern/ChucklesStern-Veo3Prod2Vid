@@ -13,7 +13,9 @@
       "Bash(npx tsx:*)",
       "Bash(echo:*)",
       "Bash(npx drizzle-kit:*)",
-      "Bash(NODE_ENV=development npm run dev)"
+      "Bash(NODE_ENV=development npm run dev)",
+      "WebFetch(domain:automategeniushub.com)",
+      "WebSearch"
     ],
     "defaultMode": "acceptEdits"
   }
