@@ -12,7 +12,8 @@
       "Bash(npm run:*)",
       "Bash(npx tsx:*)",
       "Bash(echo:*)",
-      "Bash(npx drizzle-kit:*)"
+      "Bash(npx drizzle-kit:*)",
+      "Bash(NODE_ENV=development npm run dev)"
     ],
     "defaultMode": "acceptEdits"
   }
