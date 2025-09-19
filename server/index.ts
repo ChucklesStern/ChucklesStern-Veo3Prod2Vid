@@ -64,7 +64,12 @@ async function validateEnvironmentConfiguration(): Promise<void> {
         });
 
         const connectivityTest = await fetch(process.env.N8N_WEBHOOK_URL, {
-          method: 'HEAD',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Fabbitt-VideoGen/1.0-StartupTest'
+          },
+          body: JSON.stringify({ test: 'startup_connectivity_check' }),
           signal: AbortSignal.timeout(10000) // 10 second timeout at startup
         });
 
