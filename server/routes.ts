@@ -1109,9 +1109,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get brand persona image URLs - use production URLs if available, otherwise construct from paths
       const brandPersonaImage1Url = process.env.BASE_MODEL_IMAGE_1_URL ||
-        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png")}`;
+        `${protocol}://${host}${(process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png").replace(/ /g, '%20')}`;
       const brandPersonaImage2Url = process.env.BASE_MODEL_IMAGE_2_URL ||
-        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png")}`;
+        `${protocol}://${host}${(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png").replace(/ /g, '%20')}`;
 
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId,
@@ -1374,9 +1374,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get brand persona image URLs - use production URLs if available, otherwise construct from paths
       const brandPersonaImage1Url = process.env.BASE_MODEL_IMAGE_1_URL ||
-        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png")}`;
+        `${protocol}://${host}${(process.env.BASE_MODEL_IMAGE_1 || "/public-objects/base model/basemodel.png").replace(/ /g, '%20')}`;
       const brandPersonaImage2Url = process.env.BASE_MODEL_IMAGE_2_URL ||
-        `${protocol}://${host}${encodeURI(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png")}`;
+        `${protocol}://${host}${(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png").replace(/ /g, '%20')}`;
 
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId: generation.taskId,
