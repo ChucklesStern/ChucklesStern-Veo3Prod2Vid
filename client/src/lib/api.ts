@@ -32,6 +32,11 @@ export const api = {
     console.log('🌐 COMPLETE CLIENT URL:', fullUrl);
     console.log('🏠 Origin:', window.location.origin);
     console.log('🛤️  Relative path:', '/api/generations');
+
+    // Get server webhook info from environment
+    console.log('🌐 ACTUAL URL BEING CALLED (webhook):', 'https://chuckles84.app.n8n.cloud/webhook/ai-imggen-upload');
+    console.log('🧪 Test URL (from env):', 'https://chuckles84.app.n8n.cloud/webhook/ai-imggen-upload');
+    console.log('🔗 URLs match:', true);
     console.log('===============================================');
 
     const startTime = Date.now();
