@@ -225,15 +225,16 @@ async function sendWebhookWithTimeout(url: string, payload: any, timeout: number
   console.log('Correlation ID:', correlationId);
   console.log('URL:', url);
 
-  // Compare with test payload structure
-  console.log('=== PAYLOAD COMPARISON ===');
-  console.log('🌐 ACTUAL URL BEING CALLED:', url);
+  // Production debugging console logs for webhook URL verification
+  console.log('=== WEBHOOK URL VERIFICATION ===');
+  console.log('ACTUAL URL BEING CALLED (webhook):', url);
   console.log('🧪 Test URL (from env):', process.env.N8N_WEBHOOK_URL);
+  console.log('🔗 URLs match:', url === process.env.N8N_WEBHOOK_URL);
+  console.log('=== PAYLOAD COMPARISON ===');
   console.log('📦 Test payload structure: { test: "connectivity_check" }');
   console.log('📦 Current payload keys:', Object.keys(payload));
   console.log('📏 Current payload size:', JSON.stringify(payload).length, 'bytes');
   console.log('📏 Test payload size: ~32 bytes');
-  console.log('🔗 URLs match:', url === process.env.N8N_WEBHOOK_URL);
   console.log('============================');
   console.log('Method: POST');
   console.log('Headers:', JSON.stringify(requestHeaders, null, 2));
