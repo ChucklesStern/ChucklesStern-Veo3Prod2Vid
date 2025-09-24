@@ -1177,7 +1177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `${protocol}://${host}${(process.env.BASE_MODEL_IMAGE_2 || "/public-objects/base model/basemodel2.png").replace(/ /g, '%20')}`;
 
       // TEMPORARY: Test with minimal payload to match working connectivity test
-      const useMinimalPayload = true; // Set to false to use full payload
+      const useMinimalPayload = false; // Set to false to use full payload
 
       const webhookPayload = useMinimalPayload
         ? { test: 'generation_connectivity_check', taskId } // Minimal payload like test
