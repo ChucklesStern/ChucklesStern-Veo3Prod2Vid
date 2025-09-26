@@ -647,6 +647,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: 'webhook_connectivity_test_start'
       });
 
+      // Detect outbound IP in parallel with webhook test
+      const ipDetectionPromise = (async () => {
+        try {
+          const ipResponse = await fetch('https://api.ipify.org', {
+            method: 'GET',
+            signal: AbortSignal.timeout(3000)
+          });
+          return ipResponse.ok ? (await ipResponse.text()).trim() : null;
+        } catch {
+          return null;
+        }
+      })();
+
       const testResponse = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
@@ -665,11 +678,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         responseBody = await testResponse.text();
       }
 
+      // Wait for IP detection to complete
+      const detectedIp = await ipDetectionPromise;
+
       logger.info('Webhook connectivity test completed', {
         correlationId,
         status: testResponse.status,
         ok: testResponse.ok,
         duration,
+        detectedIp,
         type: 'webhook_connectivity_test_success'
       });
 
@@ -681,6 +698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           body: responseBody,
           duration
         },
+        outboundIp: detectedIp,
         timestamp: new Date().toISOString(),
         correlationId
       });
@@ -701,6 +719,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error.message,
         errorName: error.name,
         duration,
+        timestamp: new Date().toISOString(),
+        correlationId
+      });
+    }
+  });
+
+  // Outbound IP detection endpoint
+  app.get("/api/detect-outbound-ip", async (req, res) => {
+    const correlationId = (req as any).correlationId;
+    const startTime = Date.now();
+
+    try {
+      logger.info('Outbound IP detection initiated', {
+        correlationId,
+        type: 'outbound_ip_detection_start'
+      });
+
+      // Test multiple IP detection services for reliability
+      const ipServices = [
+        { name: 'ipify', url: 'https://api.ipify.org', format: 'text' },
+        { name: 'httpbin', url: 'https://httpbin.org/ip', format: 'json' },
+        { name: 'ipinfo', url: 'https://ipinfo.io/ip', format: 'text' }
+      ];
+
+      const ipResults = [];
+
+      for (const service of ipServices) {
+        try {
+          const serviceStartTime = Date.now();
+
+          const response = await fetch(service.url, {
+            method: 'GET',
+            signal: AbortSignal.timeout(5000)
+          });
+
+          const serviceDuration = Date.now() - serviceStartTime;
+
+          if (response.ok) {
+            let ip;
+            if (service.format === 'json') {
+              const data = await response.json();
+              ip = data.origin || data.ip;
+            } else {
+              ip = (await response.text()).trim();
+            }
+
+            ipResults.push({
+              service: service.name,
+              ip: ip,
+              status: 'success',
+              duration: serviceDuration
+            });
+
+            logger.info('IP service response received', {
+              correlationId,
+              service: service.name,
+              ip: ip,
+              duration: serviceDuration,
+              type: 'ip_service_success'
+            });
+          } else {
+            ipResults.push({
+              service: service.name,
+              status: 'error',
+              error: `HTTP ${response.status}`,
+              duration: serviceDuration
+            });
+          }
+        } catch (error: any) {
+          ipResults.push({
+            service: service.name,
+            status: 'error',
+            error: error.message,
+            duration: Date.now() - startTime
+          });
+
+          logger.warn('IP service failed', {
+            correlationId,
+            service: service.name,
+            error: error.message,
+            type: 'ip_service_error'
+          });
+        }
+      }
+
+      const totalDuration = Date.now() - startTime;
+
+      // Determine most reliable IP (consensus from successful responses)
+      const successfulIps = ipResults.filter(r => r.status === 'success').map(r => r.ip);
+      const mostCommonIp = successfulIps.length > 0 ? successfulIps[0] : null;
+
+      logger.info('Outbound IP detection completed', {
+        correlationId,
+        detectedIp: mostCommonIp,
+        servicesQueried: ipServices.length,
+        successfulResponses: successfulIps.length,
+        totalDuration,
+        type: 'outbound_ip_detection_success'
+      });
+
+      res.json({
+        success: successfulIps.length > 0,
+        detectedIp: mostCommonIp,
+        services: ipResults,
+        metadata: {
+          servicesQueried: ipServices.length,
+          successfulResponses: successfulIps.length,
+          totalDuration,
+          timestamp: new Date().toISOString()
+        },
+        correlationId
+      });
+
+    } catch (error: any) {
+      const totalDuration = Date.now() - startTime;
+
+      logger.error('Outbound IP detection failed', {
+        correlationId,
+        error: error.message,
+        totalDuration,
+        type: 'outbound_ip_detection_error'
+      });
+
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        duration: totalDuration,
         timestamp: new Date().toISOString(),
         correlationId
       });
@@ -946,24 +1091,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return patterns;
       }, {} as Record<string, any>);
 
-      // Get current webhook endpoint status
+      // Get current webhook endpoint status and outbound IP
       let endpointStatus = 'unknown';
       let endpointResponseTime = null;
+      let outboundIp = null;
 
       if (process.env.N8N_WEBHOOK_URL) {
         try {
+          // Run webhook test and IP detection in parallel
           const startTime = Date.now();
-          const testResponse = await fetch(process.env.N8N_WEBHOOK_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent': 'Fabbitt-VideoGen/1.0-HealthCheck'
-            },
-            body: JSON.stringify({ test: 'health_check' }),
-            signal: AbortSignal.timeout(5000)
-          });
+
+          const [testResponse, ipResponse] = await Promise.allSettled([
+            fetch(process.env.N8N_WEBHOOK_URL, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Fabbitt-VideoGen/1.0-HealthCheck'
+              },
+              body: JSON.stringify({ test: 'health_check' }),
+              signal: AbortSignal.timeout(5000)
+            }),
+            fetch('https://api.ipify.org', {
+              method: 'GET',
+              signal: AbortSignal.timeout(3000)
+            })
+          ]);
+
           endpointResponseTime = Date.now() - startTime;
-          endpointStatus = testResponse.ok ? 'healthy' : 'error';
+
+          if (testResponse.status === 'fulfilled') {
+            endpointStatus = testResponse.value.ok ? 'healthy' : 'error';
+          } else {
+            endpointStatus = 'unreachable';
+          }
+
+          if (ipResponse.status === 'fulfilled' && ipResponse.value.ok) {
+            outboundIp = (await ipResponse.value.text()).trim();
+          }
         } catch (error) {
           endpointStatus = 'unreachable';
         }
@@ -980,7 +1144,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         webhook: {
           endpoint: process.env.N8N_WEBHOOK_URL ? 'configured' : 'missing',
           status: endpointStatus,
-          responseTime: endpointResponseTime
+          responseTime: endpointResponseTime,
+          outboundIp: outboundIp
         },
         metrics: {
           totalRequests: totalAttempts,
