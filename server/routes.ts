@@ -620,6 +620,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Webhook connectivity test endpoint
+  app.get("/api/test-webhook-connectivity", async (req, res) => {
+    const correlationId = (req as any).correlationId;
+    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+
+    if (!webhookUrl) {
+      logger.error('N8N_WEBHOOK_URL not configured', {
+        correlationId,
+        type: 'webhook_connectivity_test_error'
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: 'N8N_WEBHOOK_URL not configured',
+        correlationId
+      });
+    }
+
+    const startTime = Date.now();
+
+    try {
+      logger.info('Webhook connectivity test initiated', {
+        correlationId,
+        webhookUrl,
+        type: 'webhook_connectivity_test_start'
+      });
+
+      const testResponse = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ hello: 'world' }),
+        signal: AbortSignal.timeout(5000)
+      });
+
+      const duration = Date.now() - startTime;
+      let responseBody;
+
+      try {
+        responseBody = await testResponse.json();
+      } catch {
+        responseBody = await testResponse.text();
+      }
+
+      logger.info('Webhook connectivity test completed', {
+        correlationId,
+        status: testResponse.status,
+        ok: testResponse.ok,
+        duration,
+        type: 'webhook_connectivity_test_success'
+      });
+
+      res.json({
+        success: testResponse.ok,
+        webhookResponse: {
+          status: testResponse.status,
+          statusText: testResponse.statusText,
+          body: responseBody,
+          duration
+        },
+        timestamp: new Date().toISOString(),
+        correlationId
+      });
+
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+
+      logger.error('Webhook connectivity test failed', {
+        correlationId,
+        error: error.message,
+        errorName: error.name,
+        duration,
+        type: 'webhook_connectivity_test_error'
+      });
+
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        errorName: error.name,
+        duration,
+        timestamp: new Date().toISOString(),
+        correlationId
+      });
+    }
+  });
+
   // Rate limiting management endpoints
   app.get("/api/monitoring/rate-limits", async (req, res) => {
     const { rateLimitManager } = await import("./lib/rateLimiting");
