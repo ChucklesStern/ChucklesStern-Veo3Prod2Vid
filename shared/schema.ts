@@ -7,7 +7,7 @@ export const videoGenerations = pgTable("video_generations", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   taskId: text("task_id").unique().notNull(),
   promptText: text("prompt_text").notNull(),
-  imageOriginalPath: text("image_original_path"),
+  imageOriginalPath: text("image_original_path"), // Legacy column - kept for existing data
   imagesPaths: jsonb("images_paths").$type<string[]>(),
   imageGenerationPath: text("image_generation_path"),
   videoPath: text("video_path"),

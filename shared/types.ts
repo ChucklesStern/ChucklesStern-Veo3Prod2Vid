@@ -7,11 +7,7 @@ export const UploadResponseSchema = z.object({
 
 export const GenerationCreateRequestSchema = z.object({
   promptText: z.string().trim().min(1, "Prompt text is required"),
-  imagePath: z.string().optional().refine(
-    (path) => !path || path.startsWith('/public-objects/'),
-    "Image path must be a valid public object path"
-  ),
-  imagePaths: z.array(
+  image_urls: z.array(
     z.string().refine(
       (path) => path.startsWith('/public-objects/'),
       "Each image path must be a valid public object path"
@@ -31,7 +27,6 @@ export const GenerationCallbackSchema = z.object({
 export const N8nWebhookPayloadSchema = z.object({
   taskId: z.string(),
   promptText: z.string(),
-  imagePath: z.string().nullable(),
   image_urls: z.array(z.string()).optional(),
   brandPersonaImage1Url: z.string().nullable(),
   brandPersonaImage2Url: z.string().nullable(),

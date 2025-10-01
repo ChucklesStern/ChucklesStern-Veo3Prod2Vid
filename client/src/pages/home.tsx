@@ -85,23 +85,21 @@ export default function Home() {
     // Initialize audio context on first user interaction
     initialize();
 
-    // Use imagePaths array if multiple images, fallback to single imagePath for backward compatibility
+    // Always use image_urls array for all cases (single or multiple images)
     const submitData: any = {
       promptText: data.promptText,
       brand_persona: data.brand_persona
     };
 
-    if (uploadedImages.length > 1) {
+    if (uploadedImages.length > 0) {
       // Filter out any null/undefined values and ensure all paths are valid strings
       const validPaths = uploadedImages
         .map(img => img.path)
         .filter(path => path && typeof path === 'string' && path.trim() !== '');
 
       if (validPaths.length > 0) {
-        submitData.imagePaths = validPaths;
+        submitData.image_urls = validPaths;
       }
-    } else if (uploadedImages.length === 1) {
-      submitData.imagePath = uploadedImages[0].path;
     }
 
     mutation.mutate(submitData);
@@ -671,22 +669,53 @@ export default function Home() {
                             </span>
                           </div>
                           
-                          {/* Original Image Reference (if exists) */}
-                          {video.imageOriginalPath && (
+                          {/* Original Images Reference (if exists) */}
+                          {(video.imagesPaths && video.imagesPaths.length > 0) || video.imageOriginalPath ? (
                             <div className="flex items-center space-x-2 text-xs text-slate-500">
-                              <span>Original:</span>
-                              <div 
-                                className="relative group cursor-pointer"
-                                onClick={() => openMedia(getMediaUrl(video.imageOriginalPath!))}
-                              >
-                                <img 
-                                  src={getMediaUrl(video.imageOriginalPath)}
-                                  alt="Original product image"
-                                  className="w-8 h-8 object-cover rounded border border-slate-200 group-hover:ring-1 group-hover:ring-primary transition-all"
-                                />
+                              <span>
+                                {video.imagesPaths && video.imagesPaths.length > 1 ? 'Originals:' : 'Original:'}
+                              </span>
+                              <div className="flex space-x-1">
+                                {/* Show new imagesPaths array */}
+                                {video.imagesPaths && video.imagesPaths.length > 0 ? (
+                                  <>
+                                    {video.imagesPaths.slice(0, 3).map((imagePath, index) => (
+                                      <div
+                                        key={index}
+                                        className="relative group cursor-pointer"
+                                        onClick={() => openMedia(getMediaUrl(imagePath))}
+                                      >
+                                        <img
+                                          src={getMediaUrl(imagePath)}
+                                          alt={`Original image ${index + 1}`}
+                                          className="w-8 h-8 object-cover rounded border border-slate-200 group-hover:ring-1 group-hover:ring-primary transition-all"
+                                        />
+                                      </div>
+                                    ))}
+                                    {video.imagesPaths.length > 3 && (
+                                      <div className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded border border-slate-200 text-xs text-slate-600">
+                                        +{video.imagesPaths.length - 3}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  /* Fallback for legacy imageOriginalPath */
+                                  video.imageOriginalPath && (
+                                    <div
+                                      className="relative group cursor-pointer"
+                                      onClick={() => openMedia(getMediaUrl(video.imageOriginalPath!))}
+                                    >
+                                      <img
+                                        src={getMediaUrl(video.imageOriginalPath)}
+                                        alt="Original product image"
+                                        className="w-8 h-8 object-cover rounded border border-slate-200 group-hover:ring-1 group-hover:ring-primary transition-all"
+                                      />
+                                    </div>
+                                  )
+                                )}
                               </div>
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     ))}

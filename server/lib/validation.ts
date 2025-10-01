@@ -102,10 +102,12 @@ class ValidationManager {
           .min(1, 'Prompt text is required')
           .max(5000, 'Prompt text must be less than 5000 characters')
           .transform((text) => this.sanitizeString(text)),
-        imagePath: z.string().optional().refine(
-          (path) => !path || path.startsWith('/public-objects/'),
-          'Image path must be a valid public object path'
-        ),
+        image_urls: z.array(
+          z.string().refine(
+            (path) => path.startsWith('/public-objects/'),
+            'Each image path must be a valid public object path'
+          )
+        ).max(10, 'Maximum 10 images allowed').optional(),
         brand_persona: z.string().max(2000, 'Brand persona must be less than 2000 characters').optional()
           .transform((text: string | undefined) => text ? this.sanitizeString(text) : text)
       }).strict(),

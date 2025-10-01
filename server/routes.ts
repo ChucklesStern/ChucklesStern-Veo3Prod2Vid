@@ -1357,15 +1357,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/generations", async (req, res) => {
     try {
       // Enhanced logging for debugging validation issues
-      if (req.body.imagePaths) {
-        logger.debug('Request imagePaths validation', {
+      if (req.body.image_urls) {
+        logger.debug('Request image_urls validation', {
           correlationId: (req as any).correlationId,
-          imagePaths: req.body.imagePaths,
-          imagePathsType: typeof req.body.imagePaths,
-          imagePathsIsArray: Array.isArray(req.body.imagePaths),
-          imagePathsLength: Array.isArray(req.body.imagePaths) ? req.body.imagePaths.length : 'N/A',
-          imagePathsItems: Array.isArray(req.body.imagePaths) ? 
-            req.body.imagePaths.map((item: any, index: number) => ({
+          image_urls: req.body.image_urls,
+          imageUrlsType: typeof req.body.image_urls,
+          imageUrlsIsArray: Array.isArray(req.body.image_urls),
+          imageUrlsLength: Array.isArray(req.body.image_urls) ? req.body.image_urls.length : 'N/A',
+          imageUrlsItems: Array.isArray(req.body.image_urls) ?
+            req.body.image_urls.map((item: any, index: number) => ({
               index,
               value: item,
               type: typeof item
@@ -1374,31 +1374,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Preprocess request body to filter out null values from imagePaths if present
+      // Preprocess request body to filter out null values from image_urls if present
       const requestBody = { ...req.body };
-      if (requestBody.imagePaths && Array.isArray(requestBody.imagePaths)) {
-        const originalLength = requestBody.imagePaths.length;
-        const originalPaths = [...requestBody.imagePaths];
+      if (requestBody.image_urls && Array.isArray(requestBody.image_urls)) {
+        const originalLength = requestBody.image_urls.length;
+        const originalPaths = [...requestBody.image_urls];
 
-        requestBody.imagePaths = requestBody.imagePaths.filter(
+        requestBody.image_urls = requestBody.image_urls.filter(
           (path: any) => path !== null && path !== undefined && typeof path === 'string' && path.trim() !== ''
         );
 
         // Log if filtering occurred
-        if (requestBody.imagePaths.length !== originalLength) {
-          logger.warn('Filtered null/invalid values from imagePaths', {
+        if (requestBody.image_urls.length !== originalLength) {
+          logger.warn('Filtered null/invalid values from image_urls', {
             correlationId: (req as any).correlationId,
             originalPaths,
             originalLength,
-            filteredPaths: requestBody.imagePaths,
-            filteredLength: requestBody.imagePaths.length,
-            type: 'imagepaths_filtering'
+            filteredPaths: requestBody.image_urls,
+            filteredLength: requestBody.image_urls.length,
+            type: 'image_urls_filtering'
           });
         }
 
-        // If no valid paths remain, remove the imagePaths field entirely
-        if (requestBody.imagePaths.length === 0) {
-          delete requestBody.imagePaths;
+        // If no valid paths remain, remove the image_urls field entirely
+        if (requestBody.image_urls.length === 0) {
+          delete requestBody.image_urls;
         }
       }
 
@@ -1408,8 +1408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const generation = await storage.createVideoGeneration({
         taskId,
         promptText: validatedBody.promptText,
-        imageOriginalPath: validatedBody.imagePath || null,
-        imagesPaths: validatedBody.imagePaths || undefined,
+        imagesPaths: validatedBody.image_urls || undefined,
         status: "pending" as const
       });
 
@@ -1417,8 +1416,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const protocol = req.headers['x-forwarded-proto'] || 'http';
       const host = req.headers.host;
 
-      // Construct full public URLs for multiple images
-      const imageUrls = validatedBody.imagePaths?.map(path =>
+      // Construct full public URLs for images
+      const imageUrls = validatedBody.image_urls?.map(path =>
         `${protocol}://${host}${path}`
       ) || [];
 
@@ -1436,7 +1435,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : N8nWebhookPayloadSchema.parse({
             taskId,
             promptText: validatedBody.promptText,
-            imagePath: validatedBody.imagePath || null,
             image_urls: imageUrls,
             brandPersonaImage1Url,
             brandPersonaImage2Url,
@@ -1487,8 +1485,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           requestBody: req.body,
           validationErrors: error.errors,
           requestBodyType: typeof req.body,
-          imagePathsPresent: !!req.body.imagePaths,
-          imagePathsValue: req.body.imagePaths,
+          imageUrlsPresent: !!req.body.image_urls,
+          imageUrlsValue: req.body.image_urls,
           type: 'validation_error_details'
         });
 
@@ -1706,7 +1704,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const webhookPayload = N8nWebhookPayloadSchema.parse({
         taskId: generation.taskId,
         promptText: generation.promptText,
-        imagePath: generation.imageOriginalPath,
         image_urls: imageUrls,
         brandPersonaImage1Url,
         brandPersonaImage2Url,
